@@ -383,7 +383,7 @@ function separateDinos(dinos, dt) {
 function pushOutOfBuildings(dino, buildings) {
   for (const b of buildings) {
     if (!b.solid) continue;
-    const hw = b.hw + dino.spec.hitR * 0.5, hd = b.hd + dino.spec.hitR * 0.5;
+    const hw = b.solid.hw + dino.spec.hitR * 0.5, hd = b.solid.hd + dino.spec.hitR * 0.5;
     if (Math.abs(dino.x - b.x) < hw && Math.abs(dino.z - b.z) < hd) {
       const ox = hw - Math.abs(dino.x - b.x);
       const oz = hd - Math.abs(dino.z - b.z);
@@ -427,7 +427,26 @@ export function createDinoSystem(scene, world) {
     spawnAt('raptor', p.x, p.z);
   }
 
-  const tamedOffsets = new Map();
+  // island repopulation: keep the ecosystem at its starting density
+  const initialCounts = { trex: 1, bronto: 4, raptor: 7 };
+  const pendingRespawn = { trex: 0, bronto: 0, raptor: 0 };
+  function repopulate(dt) {
+    for (const key of Object.keys(initialCounts)) {
+      let living = 0;
+      for (const d of dinos) if (d.species === key && !d.dead) living++;
+      if (living >= initialCounts[key]) { pendingRespawn[key] = 0; continue; }
+      if (pendingRespawn[key] <= 0) pendingRespawn[key] = 50 + rng() * 40;
+      else {
+        pendingRespawn[key] -= dt;
+        if (pendingRespawn[key] <= 0) {
+          const biomes = key === 'trex' ? ['highland', 'plains'] : key === 'bronto' ? ['plains', 'jungle'] : ['jungle'];
+          const pt = findSpawn(biomes, key === 'trex' ? 8 : 1.5, key === 'trex' ? 40 : 16);
+          spawnAt(key, pt.x, pt.z);
+          pendingRespawn[key] = 0;
+        }
+      }
+    }
+  }
 
   function damageDino(dino, dmg, fromX, fromZ, ctx) {
     if (dino.dead) return;
@@ -547,6 +566,7 @@ export function createDinoSystem(scene, world) {
         }
         if (threat) { d.state = 'hunt'; d.target = threat; }
         else if (d.aggro) { d.state = 'hunt'; d.target = null; } // angry at player
+        else if (ctx.tamedMode === 'stay') d.state = 'stay';     // commanded to hold
         else d.state = 'follow';
       } else if (d.species === 'bronto') {
         const t = threatForBronto(d, dinos, player);
@@ -635,6 +655,10 @@ export function createDinoSystem(scene, world) {
           const td = dist2d(d.x, d.z, d.target.x, d.target.z);
           if (td > 45 || (d.target.dead)) { d.state = d.species === 'bronto' ? 'graze' : 'wander'; d.stateT = 0; d.target = null; }
         } else if (playerDist > 45) { d.state = d.species === 'bronto' ? 'graze' : 'wander'; d.stateT = 0; }
+      } else if (d.state === 'stay') {
+        // commanded to hold position
+        d.speed = 0;
+        dinoFace(d, player.x, player.z, dt * 2);
       } else if (d.state === 'follow') {
         // orbit behind player
         let idx = 0;
@@ -699,6 +723,7 @@ export function createDinoSystem(scene, world) {
 
     separateDinos(dinos, dt);
     for (const d of dinos) if (!d.dead) pushOutOfBuildings(d, buildings);
+    repopulate(dt);
   }
 
   let cameraQuat = new THREE.Quaternion();

@@ -1,4 +1,4 @@
-// Inventory: 9 hotbar slots, stacking, crafting.
+// Inventory: 9 hotbar slots, stacking, crafting, tool durability.
 import { ITEMS, RECIPES } from './items.js';
 
 export function createInventory() {
@@ -6,6 +6,10 @@ export function createInventory() {
   let selected = 0;
   let version = 0;
   const bump = () => { version++; };
+  const maxDur = id => {
+    const t = ITEMS[id] && ITEMS[id].tool;
+    return t && t.dur ? t.dur : null;
+  };
 
   function count(id) {
     let n = 0;
@@ -27,7 +31,7 @@ export function createInventory() {
     for (let i = 0; i < 9 && rem > 0; i++) {
       if (!slots[i]) {
         const take = Math.min(stack, rem);
-        slots[i] = { id, count: take };
+        slots[i] = { id, count: take, dur: maxDur(id) };
         rem -= take;
       }
     }
@@ -53,6 +57,32 @@ export function createInventory() {
     if (s) consume(s.id, n);
   }
 
+  // Wear the selected tool. Returns null when no tool selected, or
+  // { broke, id, dur } so callers can react when a tool shatters.
+  function damageTool(n) {
+    const s = slots[selected];
+    if (!s || s.dur == null || s.dur <= 0) return null;
+    s.dur = Math.max(0, s.dur - n);
+    bump();
+    if (s.dur <= 0) {
+      const id = s.id;
+      slots[selected] = null;
+      return { broke: true, id };
+    }
+    return { broke: false, id: s.id, dur: s.dur };
+  }
+
+  function clear() {
+    for (let i = 0; i < 9; i++) slots[i] = null;
+    bump();
+  }
+
+  function totalSlots() {
+    let n = 0;
+    for (const s of slots) if (s) n++;
+    return n;
+  }
+
   function selectedItem() {
     const s = slots[selected];
     return s ? ITEMS[s.id] : null;
@@ -73,5 +103,6 @@ export function createInventory() {
     get version() { return version; },
     select(i) { selected = ((i % 9) + 9) % 9; bump(); },
     count, add, consume, consumeSelected, selectedItem, craft,
+    damageTool, clear, totalSlots,
   };
 }

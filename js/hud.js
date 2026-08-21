@@ -8,7 +8,7 @@ const MM_COLORS = {
 export function createHud(G) {
   const $ = id => document.getElementById(id);
   const el = {
-    hp: $('bar-hp'), st: $('bar-st'), hu: $('bar-hu'),
+    hp: $('bar-hp'), st: $('bar-st'), hu: $('bar-hu'), wt: $('bar-wt'),
     hotbar: $('hotbar'),
     minimap: $('minimap'),
     time: $('time-label'), biome: $('biome-label'),
@@ -19,7 +19,7 @@ export function createHud(G) {
     toast: $('toast'),
     vignette: $('vignette'),
     start: $('start'), dead: $('dead'), pause: $('pause'),
-    tamedCount: $('tamed-count'),
+    tamedCount: $('tamed-count'), tamedMode: $('tamed-mode'),
   };
 
   // ---------- hotbar ----------
@@ -27,7 +27,7 @@ export function createHud(G) {
   for (let i = 0; i < 9; i++) {
     const s = document.createElement('div');
     s.className = 'slot';
-    s.innerHTML = '<img alt=""><span class="cnt"></span>';
+    s.innerHTML = '<img alt=""><span class="cnt"></span><div class="dur"><i></i></div>';
     s.addEventListener('mousedown', e => {
       e.stopPropagation();
       G.inv.select(i);
@@ -40,13 +40,26 @@ export function createHud(G) {
       const it = G.inv.slots[i];
       const img = slots[i].querySelector('img');
       const cnt = slots[i].querySelector('.cnt');
+      const durWrap = slots[i].querySelector('.dur');
+      const durBar = slots[i].querySelector('.dur i');
       if (it) {
         img.src = itemIcon(it.id);
         img.style.display = '';
         cnt.textContent = it.count > 1 ? it.count : '';
+        slots[i].title = `${ITEMS[it.id].name}${it.count > 1 ? ' ×' + it.count : ''}`;
+        const tool = ITEMS[it.id].tool;
+        if (tool && tool.dur && it.dur != null) {
+          durWrap.style.display = '';
+          durBar.style.width = Math.max(2, (it.dur / tool.dur) * 100) + '%';
+          durBar.style.background = it.dur <= tool.dur * 0.25 ? '#e5484d' : '';
+        } else {
+          durWrap.style.display = 'none';
+        }
       } else {
         img.style.display = 'none';
         cnt.textContent = '';
+        slots[i].title = '';
+        durWrap.style.display = 'none';
       }
       slots[i].classList.toggle('sel', G.inv.selected === i);
     }
@@ -132,27 +145,39 @@ export function createHud(G) {
     const p = G.player.player;
     const sel = G.inv.selectedItem();
     const gs = G.player.ghostState();
+    // 1. building ghost — explain why placement fails
     if (sel && sel.build) {
-      setPrompt(gs.valid ? `E — Place ${sel.name}` : 'Cannot place here', gs.valid ? '' : 'bad');
-      return;
-    }
-    const fire = G.buildings.find(b => b.type === 'campfire' && Math.hypot(b.x - p.x, b.z - p.z) < 3.6);
-    if (fire && G.inv.count('meat') > 0) { setPrompt('E — Cook meat'); return; }
-    if (G.player.player.gather.node) {
-      const n = G.player.player.gather.node;
-      const label = { palm: 'Chop palm', broad: 'Chop tree', conifer: 'Chop pine', rock: 'Mine rock', bush: 'Pick berries' }[n.type];
-      setPrompt(`Hold E — ${label}`);
+      if (!gs.pos) setPrompt('Aim at the ground to place it', 'bad');
+      else setPrompt(gs.valid ? `E — Place ${sel.name}` : 'Cannot place here', gs.valid ? '' : 'bad');
       return;
     }
     const dirX = -Math.sin(p.yaw), dirZ = -Math.cos(p.yaw);
+    // 2. feeding a dino you are looking at
     const dino = G.dinos.findNearestDino(p.x, p.z, dirX, dirZ, 9);
     if (dino && sel && sel.food) {
       setPrompt(`F — Throw ${sel.name} to ${dino.tamed ? dino.name : 'the ' + dino.spec.label.toLowerCase()}`);
       return;
     }
-    if (sel && sel.food) { setPrompt(`E — Eat  ·  F — Throw`); return; }
-    if (sel && sel.heal) { setPrompt(`E — Use ${sel.name}`); return; }
-    if (G.dinos.tamedCount() > 0) { setPrompt('T — Call your dinos'); return; }
+    // 3. cooking at a nearby campfire
+    const fire = G.buildings.find(b => b.type === 'campfire' && Math.hypot(b.x - p.x, b.z - p.z) < 3.6);
+    if (fire && G.inv.count('meat') > 0) { setPrompt('E — Cook meat'); return; }
+    // 4. eating/using selected food — unless you are picking berries off a bush
+    const node = G.player.findNode ? G.player.findNode() : null;
+    if (sel && (sel.food || sel.heal) && !(node && node.type === 'bush' && sel.food)) {
+      setPrompt(sel.food ? `E — Eat ${sel.name}  ·  F — Throw` : `E — Use ${sel.name}`);
+      return;
+    }
+    // 5. gather node you are looking at
+    if (node) {
+      const label = { palm: 'Chop palm', broad: 'Chop tree', conifer: 'Chop pine', rock: 'Mine rock', bush: 'Pick berries' }[node.type];
+      setPrompt(`Hold E — ${label}`);
+      return;
+    }
+    // 6. drink from the shallows
+    const nearWater = p.inWater || G.world.heightAt(p.x, p.z) < 0.75;
+    if (nearWater && !(sel && (sel.food || sel.heal))) { setPrompt('E — Drink water'); return; }
+    // 7. tamed dinos
+    if (G.dinos.tamedCount() > 0) { setPrompt('G — Follow/Stay · T — Call'); return; }
     setPrompt('');
   }
 
@@ -166,6 +191,7 @@ export function createHud(G) {
       const costHtml = Object.entries(r.cost).map(([id, n]) =>
         `<span class="cost" data-item="${id}"><img src="${itemIcon(id)}"><b>${n}</b></span>`).join('');
       row.innerHTML = `<img class="cicon" src="${itemIcon(r.id)}"><div class="cinfo"><div class="cname">${r.name}</div><div class="cdesc">${r.desc}</div></div><div class="ccost">${costHtml}</div>`;
+      row.title = r.desc;
       row.addEventListener('click', () => {
         if (G.inv.craft(r.id)) {
           G.audio.sfx.craft();
@@ -209,6 +235,9 @@ export function createHud(G) {
   let vigT = 0;
   function flashDamage() { vigT = 0.55; }
 
+  // ---------- onboarding hints (shown once) ----------
+  const hints = { gather: false, craft: false, night: false, water: false, hunger: false };
+
   // ---------- main update ----------
   let mmT = 0;
   function update(dt, G2) {
@@ -216,8 +245,10 @@ export function createHud(G) {
     el.hp.style.width = p.health + '%';
     el.st.style.width = p.stamina + '%';
     el.hu.style.width = p.hunger + '%';
+    el.wt.style.width = p.water + '%';
     el.hp.parentElement.classList.toggle('low', p.health < 30);
     el.hu.parentElement.classList.toggle('low', p.hunger < 25);
+    el.wt.parentElement.classList.toggle('low', p.water < 25);
 
     // time
     const t = G2.time.t;
@@ -267,6 +298,14 @@ export function createHud(G) {
     }
 
     el.tamedCount.textContent = G.dinos.tamedCount();
+    el.tamedMode.textContent = G.tamedMode === 'stay' ? 'STAY' : 'FOLLOW';
+
+    // onboarding hints
+    if (G2.started && G2.timeAbs > 12 && !hints.gather) { hints.gather = true; toast('Hold E on trees, rocks and bushes to gather materials.'); }
+    if (!hints.craft && G.inv.count('wood') >= 3 && G.inv.count('stone') >= 1) { hints.craft = true; toast('Press C to open crafting.'); }
+    if (!hints.night && G2.time.t > 0.78 && G2.timeAbs > 45) { hints.night = true; toast('Night is falling — build a campfire or torch to stay safe.'); }
+    if (!hints.water && p.water < 45) { hints.water = true; toast('You are thirsty — stand in the shallows and press E to drink.'); }
+    if (!hints.hunger && p.hunger < 45) { hints.hunger = true; toast('You are hungry — eat berries or cooked meat.'); }
 
     mmT -= dt;
     if (mmT <= 0) { mmT = 0.12; drawMinimap(); }

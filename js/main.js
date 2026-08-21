@@ -47,9 +47,18 @@ const G = {
   time: { t: 0.375, day: 1, dayLength: 360 },
   timeAbs: 0,
   tameFocus: null,
+  tamedMode: 'follow',
   started: false,
   paused: false,
   onDeath() {
+    // AAA survival consequence: your inventory drops where you fell
+    const p = G.player.player;
+    for (const s of G.inv.slots) {
+      if (!s) continue;
+      G.world.spawnPickup(s.id, s.count, p.x + (Math.random() - 0.5) * 2.5, p.z + (Math.random() - 0.5) * 2.5);
+    }
+    G.inv.clear();
+    G.hud.toast('You dropped everything you were carrying.');
     G.hud.setOverlay('dead');
     if (document.pointerLockElement) safeExitLock();
   },
@@ -100,9 +109,6 @@ function acquireLock() {
 }
 
 // ---------- input ----------
-const keys = new Set();
-function keyName(e) { return e.code; }
-
 window.addEventListener('keydown', e => {
   if (e.repeat) return;
   const c = e.code;
@@ -112,6 +118,12 @@ window.addEventListener('keydown', e => {
   if (c === 'KeyD') G.input.d = true;
   if (c === 'ShiftLeft' || c === 'ShiftRight') G.input.shift = true;
   if (c === 'Space') { G.input.space = true; e.preventDefault(); }
+  // ESC closes the craft panel before anything else
+  if (c === 'Escape' && hud.craftOpen()) {
+    hud.setCraft(false);
+    acquireLock();
+    return;
+  }
   if (!G.started || G.paused) return;
   if (c === 'KeyE') {
     G.input.eHeld = true;
@@ -121,8 +133,27 @@ window.addEventListener('keydown', e => {
   if (c === 'KeyC') {
     const open = hud.craftOpen();
     hud.setCraft(!open);
-    if (!open) { if (document.pointerLockElement) safeExitLock(); }
-    else acquireLock();
+    if (open) acquireLock();
+    else safeExitLock();
+  }
+  if (c === 'KeyG' && !hud.craftOpen()) {
+    G.tamedMode = G.tamedMode === 'follow' ? 'stay' : 'follow';
+    if (G.tamedMode === 'follow') dinos.callTamed();
+    hud.toast(G.tamedMode === 'follow' ? 'Tamed dinos: FOLLOW' : 'Tamed dinos: STAY');
+  }
+  if (c === 'KeyZ' && !hud.craftOpen()) {
+    const t = G.time.t;
+    if (t > 0.25 && t < 0.75) {
+      hud.toast('You can only sleep at night.');
+    } else {
+      G.time.t = 0.30;
+      G.time.day += 1;
+      G.player.player.stamina = 100;
+      G.player.player.hunger = Math.max(0, G.player.player.hunger - 8);
+      G.player.player.water = Math.max(0, G.player.player.water - 12);
+      audio.sfx.sleep();
+      hud.toast('You slept until morning ☀');
+    }
   }
   if (c === 'KeyT' && !hud.craftOpen()) {
     if (dinos.callTamed()) hud.toast('Your dinos are coming!');
@@ -164,6 +195,7 @@ window.addEventListener('mousedown', e => {
 
 window.addEventListener('wheel', e => {
   if (!G.started || G.paused) return;
+  if (hud.craftOpen()) return;
   inv.select(inv.selected + (e.deltaY > 0 ? 1 : -1));
   hud.refreshHotbar();
 });
@@ -183,6 +215,7 @@ document.addEventListener('pointerlockchange', () => {
     if (G.started && !G.player.player.dead && !hud.craftOpen()) {
       G.paused = true;
       hud.setOverlay('pause');
+      document.getElementById('pause-mute').textContent = audio.muted ? 'SOUND OFF' : 'SOUND ON';
     }
   }
   if (locked) {
@@ -205,6 +238,11 @@ document.getElementById('dead').addEventListener('click', () => {
 });
 document.getElementById('pause').addEventListener('click', () => {
   acquireLock();
+});
+document.getElementById('pause-mute').addEventListener('click', e => {
+  e.stopPropagation();
+  const m = audio.toggleMute();
+  document.getElementById('pause-mute').textContent = m ? 'SOUND OFF' : 'SOUND ON';
 });
 
 // ---------- food projectile meshes ----------
@@ -237,17 +275,17 @@ function updateProjectiles(dt) {
 
 // ---------- loop ----------
 let last = performance.now();
-let lastInvVersion = -1;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
 
-  if (!G.started || G.paused) {
+  // crafting is a menu: freeze the simulation while it is open
+  if (!G.started || G.paused || hud.craftOpen()) {
     // idle render so the world is visible behind overlays
     world.update(0.016, G.time.t, G.player.player.x, G.player.player.z, G.buildings);
     particles.update(0.016);
-    camera.rotation.y += 0.016 * 0.05; // slow pan behind the title
+    if (!G.started) camera.rotation.y += 0.016 * 0.05; // slow pan behind the title
     renderer.render(scene, camera);
     return;
   }
@@ -268,6 +306,7 @@ function frame(now) {
     buildings: G.buildings,
     projectiles: p.projectiles,
     time: G.timeAbs,
+    tamedMode: G.tamedMode,
     onFed: d => { G.tameFocus = { dino: d, t: 5 }; },
   });
 

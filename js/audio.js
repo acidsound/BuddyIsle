@@ -80,6 +80,9 @@ export function createAudio() {
     place() { tone({ f0: 140, f1: 70, dur: 0.12, vol: 0.4 }); noiseBurst({ dur: 0.08, freq: 350, q: 0.6, vol: 0.3, type: 'lowpass' }); },
     hurt() { tone({ f0: 90, f1: 40, dur: 0.25, vol: 0.5 }); noiseBurst({ dur: 0.15, freq: 200, q: 0.5, vol: 0.35, type: 'lowpass' }); },
     heal() { tone({ f0: 440, dur: 0.1, vol: 0.15 }); tone({ f0: 660, dur: 0.14, vol: 0.15, delay: 0.08 }); },
+    drink() { tone({ f0: 500, f1: 900, dur: 0.09, vol: 0.13, type: 'sine' }); tone({ f0: 460, f1: 820, dur: 0.1, vol: 0.11, type: 'sine', delay: 0.1 }); },
+    sleep() { tone({ f0: 220, f1: 330, dur: 0.4, vol: 0.09, type: 'sine' }); tone({ f0: 330, f1: 440, dur: 0.4, vol: 0.07, type: 'sine', delay: 0.35 }); },
+    breakTool() { noiseBurst({ dur: 0.18, freq: 700, q: 0.8, vol: 0.4, sweep: -500 }); tone({ f0: 300, f1: 90, dur: 0.15, vol: 0.3, type: 'triangle' }); },
     tame() { [523, 659, 784, 1047].forEach((f, i) => tone({ f0: f, dur: 0.16, vol: 0.22, type: 'triangle', delay: i * 0.09 })); },
     heart() { tone({ f0: 880, dur: 0.08, vol: 0.12, type: 'sine' }); },
     roar(kind) {

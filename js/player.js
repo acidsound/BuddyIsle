@@ -31,18 +31,25 @@ export function createPlayer(scene, camera, world, ctx) {
     yaw: Math.atan2(-sx, -sz) + Math.PI, // face island center
     pitch: 0,
     velY: 0, onGround: true,
-    health: 100, stamina: 100, hunger: 100,
+    health: 100, stamina: 100, hunger: 100, water: 100,
     bobPhase: 0, moveAmt: 0,
     swayX: 0, swayZ: 0,
     dead: false, invulnT: 0,
     inWater: false,
     footT: 0,
+    pickupToastT: 0, fullToastT: 0,
     attack: { cd: 0, t: 0 },
     gather: { node: null, progress: 0, fxT: 0 },
     cook: null,
     sprinting: false,
     hand: { group: null, tool: null, swingT: 0, gatherT: 0 },
     projectiles: [],
+  };
+
+  // toast helper: G.hud.toast in-game, ctx.toast in headless tests
+  const toastMsg = m => {
+    if (ctx.hud && ctx.hud.toast) ctx.hud.toast(m);
+    else if (ctx.toast) ctx.toast(m);
   };
 
   // ---------- hands ----------
@@ -145,6 +152,10 @@ export function createPlayer(scene, camera, world, ctx) {
     if (def.tool) {
       const b = toolBuilders[itemId];
       if (b) { player.hand.tool = b(); hand.add(player.hand.tool); }
+    } else if (def.build === 'torch') {
+      // hold a lit torch while placing one — it lights your way at night
+      player.hand.tool = makeTorch();
+      hand.add(player.hand.tool);
     } else if (def.food || def.heal) {
       player.hand.tool = makeFoodBlob(itemId === 'berry' ? 0xd8452e : itemId === 'cooked' ? 0x8a3a1e : itemId === 'meat' ? 0xb5432c : 0xe8e2d2);
       hand.add(player.hand.tool);
@@ -293,6 +304,14 @@ export function createPlayer(scene, camera, world, ctx) {
   }
 
   // ---------- combat ----------
+  function wearTool() {
+    const res = ctx.inv.damageTool(1);
+    if (res && res.broke) {
+      ctx.audio.sfx.breakTool();
+      toastMsg(`Your ${ITEMS[res.id].name} broke!`);
+    }
+  }
+
   function attack() {
     if (player.dead || player.attack.cd > 0) return;
     const sel = ctx.inv.selectedItem();
@@ -303,6 +322,7 @@ export function createPlayer(scene, camera, world, ctx) {
     player.attack.t = 0.12;
     player.hand.swingT = 0.3;
     ctx.audio.sfx.swing();
+    if (tool) wearTool();
     player._pendingHit = { dmg, range };
   }
 
@@ -355,6 +375,8 @@ export function createPlayer(scene, camera, world, ctx) {
         ? { berry: [2, 4] }
         : { palm: { wood: [4, 7], leaf: [2, 4] }, broad: { wood: [3, 6] }, conifer: { wood: [3, 6] }, rock: { stone: [3, 6] } }[n.type];
       world.spawnLoot({ x: n.x, z: n.z }, drops);
+      const toolUsed = sel && sel.tool && ((sel.tool.chop && n.type !== 'rock') || (sel.tool.mine && n.type === 'rock'));
+      if (toolUsed) wearTool();
       ctx.audio.sfx.breakNode();
       const p = new THREE.Vector3(n.x, hy + 1.2, n.z);
       if (n.type === 'rock') ctx.particles.emit('stone', p);
@@ -394,45 +416,71 @@ export function createPlayer(scene, camera, world, ctx) {
     ctx.inv.consumeSelected(1);
     ctx.audio.sfx.throwFood();
     player.hand.swingT = 0.25;
-    if (dino) ctx.toast(`Fed ${dino.tamed ? dino.name : 'the ' + dino.spec.label.toLowerCase()}`);
+    if (dino) toastMsg(`Fed ${dino.tamed ? dino.name : 'the ' + dino.spec.label.toLowerCase()}`);
   }
 
   // ---------- context action ----------
+  function drink() {
+    if (player.water >= 99.5) { toastMsg('You are not thirsty.'); return; }
+    player.water = clamp(player.water + 40, 0, 100);
+    player.stamina = clamp(player.stamina - 6, 0, 100);
+    ctx.particles.emit('splash', new THREE.Vector3(player.x, 0.25, player.z));
+    ctx.audio.sfx.splash();
+    ctx.audio.sfx.drink();
+    toastMsg('Drank water');
+  }
+
+  function nearWater() {
+    return player.inWater || world.heightAt(player.x, player.z) < 0.75;
+  }
+
   function contextAction() {
     if (player.dead) return;
     const sel = ctx.inv.selectedItem();
-    // 1. building
+    // 1. place building
     if (sel && sel.build) {
-      if (placeBuilding()) ctx.inv.consumeSelected(1);
+      if (ghostPos && ghostValid) {
+        placeBuilding();
+        ctx.inv.consumeSelected(1);
+      } else if (!ghostPos) {
+        toastMsg('Aim at the ground to place it');
+      } else {
+        toastMsg('Cannot place here');
+      }
       return;
     }
     // 2. cook at campfire
     const nearFire = ctx.buildings.find(b => b.type === 'campfire' && Math.hypot(b.x - player.x, b.z - player.z) < 3.6);
-    if (nearFire && ctx.inv.count('meat') > 0) {
+    if (nearFire && ctx.inv.count('meat') > 0 && (!sel || sel.id === 'meat')) {
       ctx.inv.consume('meat', 1);
       ctx.inv.add('cooked', 1);
       ctx.audio.sfx.cook();
       ctx.particles.emit('steam', new THREE.Vector3(nearFire.x, nearFire.h + 1, nearFire.z));
-      ctx.toast('Cooked meat!');
+      toastMsg('Cooked meat!');
       return;
     }
-    // 3. gather node (hold E)
-    const n = findNode();
-    if (n) { player.gather.want = true; return; }
-    // 4. eat / use
-    if (sel) {
+    // 3. eat / use selected food — unless you are picking berries off a bush
+    const node = findNode();
+    const canEat = sel && (sel.food || sel.heal);
+    if (canEat && !(node && node.type === 'bush' && sel.food)) {
       if (sel.food) {
         player.hunger = clamp(player.hunger + sel.food, 0, 100);
+        player.water = clamp(player.water + (sel.id === 'berry' ? 6 : sel.id === 'cooked' ? 4 : 0), 0, 100);
         ctx.inv.consumeSelected(1);
         ctx.audio.sfx.eat();
-        ctx.toast(`Ate ${sel.name} (+${sel.food} hunger)`);
+        toastMsg(`Ate ${sel.name} (+${sel.food} food)`);
       } else if (sel.heal) {
         player.health = clamp(player.health + sel.heal, 0, 100);
         ctx.inv.consumeSelected(1);
         ctx.audio.sfx.heal();
-        ctx.toast(`Used ${sel.name} (+${sel.heal} HP)`);
+        toastMsg(`Used ${sel.name} (+${sel.heal} HP)`);
       }
+      return;
     }
+    // 4. gather node (hold E) — progress is driven by updateGathering while E is held
+    if (node) return;
+    // 5. drink from the shallows
+    if (nearWater()) { drink(); return; }
   }
 
   // ---------- damage / death ----------
@@ -459,6 +507,8 @@ export function createPlayer(scene, camera, world, ctx) {
     player.y = world.heightAt(sx, sz);
     player.health = 100;
     player.hunger = Math.max(player.hunger, 50);
+    player.water = 100;
+    player.stamina = 100;
     player.dead = false;
     player.invulnT = 5;
     for (const d of ctx.dinos.dinos) { d.aggro = false; d.state = 'wander'; d.stateT = 0; }
@@ -508,7 +558,7 @@ export function createPlayer(scene, camera, world, ctx) {
     if (dc > 184) {
       const k = 184 / dc;
       player.x *= k; player.z *= k;
-      if (Math.random() < dt * 0.5) ctx.toast('Stay on the island!');
+      if (Math.random() < dt * 0.5) toastMsg('Stay on the island!');
     }
     // building collision
     for (const b of ctx.buildings) {
@@ -537,6 +587,9 @@ export function createPlayer(scene, camera, world, ctx) {
       }
     }
     // collect dropped pickups
+    player.pickupToastT = Math.max(0, player.pickupToastT - dt);
+    player.fullToastT = Math.max(0, player.fullToastT - dt);
+    let collected = null, fullMsg = false;
     for (let i = world.pickups.length - 1; i >= 0; i--) {
       const pk = world.pickups[i];
       if (Math.hypot(pk.x - player.x, pk.z - player.z) < 1.7) {
@@ -544,10 +597,22 @@ export function createPlayer(scene, camera, world, ctx) {
         if (rem <= 0) {
           world.removePickup(i);
           ctx.audio.sfx.pick();
+          collected = collected || {};
+          collected[pk.item] = (collected[pk.item] || 0) + pk.count;
         } else {
           pk.count = rem; // inventory full — keep the rest on the ground
+          fullMsg = true;
         }
       }
+    }
+    if (collected && player.pickupToastT <= 0) {
+      player.pickupToastT = 1.2;
+      const parts = Object.entries(collected).map(([id, n]) => `${ITEMS[id].name} ×${n}`);
+      toastMsg(`Picked up ${parts.join(', ')}`);
+    }
+    if (fullMsg && player.fullToastT <= 0) {
+      player.fullToastT = 2.5;
+      toastMsg('Inventory full!');
     }
     // vertical
     const gy = Math.max(world.heightAt(player.x, player.z), -1.3);
@@ -605,10 +670,14 @@ export function createPlayer(scene, camera, world, ctx) {
 
     // survival
     player.hunger = clamp(player.hunger - dt * 0.13, 0, 100);
-    if (player.hunger <= 0) player.health = Math.max(0, player.health - dt * 1.2);
+    player.water = clamp(player.water - dt * 0.11, 0, 100);
+    const starving = player.hunger <= 0, dehydrated = player.water <= 0;
+    if (starving || dehydrated) {
+      player.health = Math.max(0, player.health - dt * (starving && dehydrated ? 2.4 : 1.3));
+    }
     if (wantsSprint) player.stamina = clamp(player.stamina - dt * 13, 0, 100);
     else player.stamina = clamp(player.stamina + dt * 9, 0, 100);
-    if (player.hunger > 60 && player.health < 100) player.health = clamp(player.health + dt * 1.4, 0, 100);
+    if (player.hunger > 60 && player.water > 50 && player.health < 100) player.health = clamp(player.health + dt * 1.4, 0, 100);
 
     // gathering
     updateGathering(dt);
@@ -650,6 +719,7 @@ export function createPlayer(scene, camera, world, ctx) {
     takeDamage,
     respawn,
     setHandTool,
+    findNode,
     ghostState: () => ({ pos: ghostPos, valid: ghostValid }),
   };
 }

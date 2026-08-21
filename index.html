@@ -44,6 +44,7 @@
   #bar-hp { background: linear-gradient(#f0655f, #c73a35); }
   #bar-st { background: linear-gradient(#93d96a, #5da33c); }
   #bar-hu { background: linear-gradient(#ffc25e, #e08f1f); }
+  #bar-wt { background: linear-gradient(#8ad0e8, #4a96c4); }
   .track.low { border-color: #e5484d; animation: pulse 0.9s infinite; }
   @keyframes pulse { 50% { box-shadow: 0 0 12px rgba(229,72,77,0.8); } }
 
@@ -62,10 +63,15 @@
   }
   .slot img { width: 40px; height: 40px; image-rendering: auto; }
   .slot .cnt {
-    position: absolute; right: 4px; bottom: 2px;
+    position: absolute; right: 4px; bottom: 6px;
     font-size: 11px; font-weight: 700; color: var(--text);
     text-shadow: 0 1px 2px #000;
   }
+  .slot .dur {
+    position: absolute; left: 5px; right: 5px; bottom: 3px; height: 3px;
+    border-radius: 2px; background: rgba(0,0,0,0.6); overflow: hidden; display: none;
+  }
+  .slot .dur i { display: block; height: 100%; background: var(--gold); }
   .slot.sel { border-color: var(--gold); box-shadow: 0 0 10px rgba(245,185,66,0.55); transform: translateY(-4px); }
 
   /* minimap top-right */
@@ -198,6 +204,13 @@
     box-shadow: 0 4px 0 #8a6420, 0 8px 24px rgba(0,0,0,0.5);
     animation: bob 1.6s ease-in-out infinite;
   }
+  .begin.ghost {
+    background: transparent; color: var(--gold);
+    border: 2px solid var(--gold-dim); box-shadow: none;
+    font-size: 13px; letter-spacing: 2px; padding: 9px 24px;
+    margin-top: 16px !important; animation: none; cursor: pointer;
+  }
+  .begin.ghost:hover { border-color: var(--gold); }
   @keyframes bob { 50% { transform: translateY(-5px); } }
   .dead-title { font-size: 52px; font-weight: 900; letter-spacing: 4px; color: #ff5040; text-shadow: 0 3px 0 #14100c; }
   .dead-sub { margin-top: 12px; color: #cbb894; font-size: 15px; }
@@ -217,13 +230,14 @@
   <div id="minimap-wrap" class="panel">
     <canvas id="minimap" width="150" height="150"></canvas>
     <div id="minimap-n">N</div>
-    <div id="tamed-chip">🦖 <span id="tamed-count">0</span></div>
+    <div id="tamed-chip">🦖 <span id="tamed-count">0</span> · <span id="tamed-mode">FOLLOW</span></div>
   </div>
 
   <div id="bars">
     <div class="bar-row"><span class="bar-label">HP</span><div class="track"><div class="fill" id="bar-hp"></div></div></div>
     <div class="bar-row"><span class="bar-label">STA</span><div class="track"><div class="fill" id="bar-st"></div></div></div>
     <div class="bar-row"><span class="bar-label">FOOD</span><div class="track"><div class="fill" id="bar-hu"></div></div></div>
+    <div class="bar-row"><span class="bar-label">H2O</span><div class="track"><div class="fill" id="bar-wt"></div></div></div>
   </div>
 
   <div id="hotbar" class="panel"></div>
@@ -252,9 +266,11 @@
       <b>Mouse</b><span>Look around</span>
       <b>Shift / Space</b><span>Sprint / Jump</span>
       <b>Left Click</b><span>Attack</span>
-      <b>E</b><span>Gather · Eat · Place · Cook</span>
+      <b>E</b><span>Gather · Eat · Drink · Cook · Place</span>
       <b>F</b><span>Throw food (tame dinos)</span>
       <b>C</b><span>Crafting</span>
+      <b>G</b><span>Tamed dinos: follow / stay</span>
+      <b>Z</b><span>Sleep through the night</span>
       <b>1 – 9 / Wheel</b><span>Hotbar</span>
       <b>T</b><span>Call tamed dinos</span>
       <b>M</b><span>Mute</span>
@@ -266,7 +282,7 @@
 <div id="dead" class="overlay">
   <div class="card panel">
     <div class="dead-title">YOU WERE EATEN</div>
-    <div class="dead-sub">The island keeps what it catches.</div>
+    <div class="dead-sub">The island keeps what it catches — you dropped everything you were carrying.</div>
     <div class="begin" style="margin-top:26px">CLICK TO RETURN</div>
   </div>
 </div>
@@ -276,6 +292,7 @@
     <div class="pause-title">PAUSED</div>
     <div class="dead-sub">Your dinos are waiting.</div>
     <div class="begin" style="margin-top:26px">CLICK TO RESUME</div>
+    <div class="begin ghost" id="pause-mute">SOUND ON</div>
   </div>
 </div>
 
