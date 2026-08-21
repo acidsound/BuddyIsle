@@ -404,8 +404,13 @@ export function createPlayer(scene, camera, world, ctx) {
     if (!sel || !sel.food) return;
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
-    const dino = ctx.dinos.findNearestDino(player.x, player.z, dir.x, dir.z, 15);
-    const speed = 15;
+    // Toss the food far enough to reach a skittish herbivore. A bronto flees as
+    // soon as the player is within 15m, so a short toss (~10.7m at speed 15) can
+    // never land on it — taming would be impossible. At speed 30 the throw
+    // reaches ~21.5m, comfortably beyond the flee radius, so you can feed a
+    // grazing bronto from a safe distance.
+    const dino = ctx.dinos.findNearestDino(player.x, player.z, dir.x, dir.z, 26);
+    const speed = 30;
     const v = dir.clone().multiplyScalar(speed);
     v.y += 3.2;
     player.projectiles.push({
@@ -511,7 +516,7 @@ export function createPlayer(scene, camera, world, ctx) {
     player.stamina = 100;
     player.dead = false;
     player.invulnT = 5;
-    for (const d of ctx.dinos.dinos) { d.aggro = false; d.state = 'wander'; d.stateT = 0; }
+    for (const d of ctx.dinos.dinos) { d.aggro = false; d.aggroPlayer = false; d.state = 'wander'; d.stateT = 0; }
   }
   player.takeDamage = takeDamage;
 

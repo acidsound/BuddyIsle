@@ -263,7 +263,7 @@ export function createDino(scene, speciesKey, x, z, world, rng) {
     target: null,
     tamed: false, name: null,
     tameProgress: 0,
-    aggro: false, aggroT: 0,
+    aggro: false, aggroT: 0, aggroPlayer: false,
     attackT: 0, attackCd: 0,
     dead: false, deathT: 0, deathDir: 1,
     silMode: false,
@@ -299,7 +299,7 @@ function findTarget(dino, all, player, world) {
       if (d < 55 && (!best || d < best.dist)) best = { kind: 'dino', obj: o, dist: d };
     }
     const pd = dist2d(dino.x, dino.z, player.x, player.z);
-    if (pd < 42 && (!best || pd < best.dist)) best = { kind: 'player', obj: player, dist: pd };
+    if (!player.dead && pd < 42 && (!best || pd < best.dist)) best = { kind: 'player', obj: player, dist: pd };
     return best;
   }
   if (dino.species === 'raptor') {
@@ -309,7 +309,7 @@ function findTarget(dino, all, player, world) {
       const d = dist2d(dino.x, dino.z, o.x, o.z);
       if (d < 48 && (!best || d < best.dist)) best = { kind: 'dino', obj: o, dist: d };
     }
-    if (dino.aggro) {
+    if (dino.aggro && dino.aggroPlayer && !player.dead) {
       const pd = dist2d(dino.x, dino.z, player.x, player.z);
       if (pd < 45 && (!best || pd < best.dist * 0.75)) best = { kind: 'player', obj: player, dist: pd };
     }
@@ -326,11 +326,12 @@ function threatForBronto(dino, all, player) {
     }
   }
   const pd = dist2d(dino.x, dino.z, player.x, player.z);
-  if (pd < 15) return player;
+  if (!player.dead && pd < 15) return player;
   return null;
 }
 
 function moveTo(dino, tx, tz, speed, dt, world) {
+  if (!isFinite(tx) || !isFinite(tz)) { dino.speed = 0; return; } // never chase NaN
   const dx = tx - dino.x, dz = tz - dino.z;
   const d = Math.hypot(dx, dz);
   if (d < 0.15) { dino.speed = 0; return; }
@@ -448,7 +449,7 @@ export function createDinoSystem(scene, world) {
     }
   }
 
-  function damageDino(dino, dmg, fromX, fromZ, ctx) {
+  function damageDino(dino, dmg, fromX, fromZ, ctx, fromPlayer = false) {
     if (dino.dead) return;
     dino.hp -= dmg;
     const p = new THREE.Vector3(dino.x, world.heightAt(dino.x, dino.z) + 1.2 * dino.spec.scale, dino.z);
@@ -462,6 +463,10 @@ export function createDinoSystem(scene, world) {
       dino.aggro = true;
       dino.aggroT = 12;
     }
+    // remember who hurt us. Only the player may redirect a carnivore's aggression
+    // onto the player: a trex bite must not make a raptor sprint across the island
+    // at a player who never touched it.
+    dino.aggroPlayer = fromPlayer;
     if (dino.hp <= 0) {
       dino.dead = true;
       dino.deathT = 0;
@@ -482,7 +487,7 @@ export function createDinoSystem(scene, world) {
     if (dino.state === 'flee') { ctx.toast('It is too spooked to take food.'); return false; }
     if (!dino.spec.tameFood) {
       if (foodId === 'meat' && dino.species === 'trex') {
-        dino.aggro = true; dino.aggroT = 30; dino.state = 'hunt'; dino.target = null;
+        dino.aggro = true; dino.aggroT = 30; dino.aggroPlayer = true; dino.state = 'hunt'; dino.target = null;
         ctx.toast('The Rexmaw is not interested... in YOU.');
       } else {
         ctx.toast(`The ${dino.spec.label} ignores that.`);
@@ -502,6 +507,7 @@ export function createDinoSystem(scene, world) {
       dino.tamed = true;
       dino.name = NAME_POOL[(Math.random() * NAME_POOL.length) | 0];
       dino.aggro = false;
+      dino.aggroPlayer = false;
       dino.state = 'follow';
       ctx.audio.sfx.tame();
       ctx.toast(`${dino.name} the ${dino.spec.label} has joined you!`);
@@ -551,28 +557,30 @@ export function createDinoSystem(scene, world) {
       d.feedFxT -= dt;
       if (d.aggro) {
         d.aggroT -= dt;
-        if (d.aggroT <= 0) d.aggro = false;
+        if (d.aggroT <= 0) { d.aggro = false; d.aggroPlayer = false; }
       }
       d.roarCd -= dt;
 
       // --- decide state ---
       if (d.tamed) {
-        // defense: hostile near player
+        // defense: only predators near the player are threats — a grazing bronto
+        // wandering past must not make a tamed raptor jump it
         let threat = null;
         for (const o of dinos) {
           if (o === d || o.dead || o.tamed) continue;
+          if (o.species !== 'raptor' && o.species !== 'trex') continue;
           const od = dist2d(d.x, d.z, o.x, o.z);
           if (od < 14 || dist2d(o.x, o.z, player.x, player.z) < 16) { threat = o; break; }
         }
         if (threat) { d.state = 'hunt'; d.target = threat; }
-        else if (d.aggro) { d.state = 'hunt'; d.target = null; } // angry at player
+        else if (d.aggro && d.aggroPlayer) { d.state = 'hunt'; d.target = null; } // angry at player
         else if (ctx.tamedMode === 'stay') d.state = 'stay';     // commanded to hold
         else d.state = 'follow';
       } else if (d.species === 'bronto') {
         const t = threatForBronto(d, dinos, player);
         if (t) { d.state = 'flee'; d.target = t; }
         else d.state = d.state === 'flee' ? 'graze' : d.state;
-        if (d.state === 'graze' && d.stateT <= 0) {
+        if ((d.state === 'graze' || d.state === 'wander' || d.state === 'idle') && d.stateT <= 0) {
           d.state = Math.random() < 0.5 ? 'graze' : 'wander';
           d.stateT = 3 + Math.random() * 4;
           if (d.state === 'wander') {
@@ -582,10 +590,10 @@ export function createDinoSystem(scene, world) {
         }
       } else {
         // raptor / trex
-        if (d.aggro && playerDist < 48) { d.state = 'hunt'; d.target = null; }
+        if (d.aggro && d.aggroPlayer && !player.dead && playerDist < 48) { d.state = 'hunt'; d.target = null; }
         else {
           const t = findTarget(d, dinos, player, world);
-          if (t) { d.state = 'hunt'; d.target = t.obj; }
+          if (t) { d.state = 'hunt'; d.target = t.obj === player ? null : t.obj; }
           else {
             // pack follow: if a packmate is hunting, join
             let joined = false;
@@ -598,8 +606,10 @@ export function createDinoSystem(scene, world) {
               }
             }
             if (!joined) {
-              if (d.state === 'hunt' && (!d.target || d.target.dead)) d.state = 'wander';
-              if (d.state === 'wander' && d.stateT <= 0) {
+              if (d.state === 'hunt' && (!d.target || d.target.dead)) { d.state = 'wander'; d.target = null; }
+              // idle must roll back into wander when its timer expires, otherwise a
+              // calm dino freezes in place forever
+              if ((d.state === 'wander' || d.state === 'idle') && d.stateT <= 0) {
                 d.state = Math.random() < 0.6 ? 'wander' : 'idle';
                 d.stateT = 2 + Math.random() * 4;
                 if (d.state === 'wander') {
@@ -618,28 +628,40 @@ export function createDinoSystem(scene, world) {
       let speed = 0;
       if (d.state === 'hunt') {
         let tx, tz, isPlayer = false;
-        if (d.target && d.target.dead) { d.state = 'wander'; d.stateT = 0; }
-        else if (d.target) { tx = d.target.x; tz = d.target.z; }
-        else { tx = player.x; tz = player.z; isPlayer = true; }
-        const d2 = dist2d(d.x, d.z, tx, tz);
-        if (d2 > d.spec.atkRange) {
-          moveTo(d, tx, tz, d.spec.run, dt, world);
+        // Never hold the raw player object as a target: normalize it to "hunt the
+        // player" (null) so attacks go through player.takeDamage, not damageDino —
+        // damageDino expects a dino and would crash on player.spec.
+        if (d.target && d.target === player) d.target = null;
+        if (d.target && d.target.dead) {
+          // Target died this frame (our own bite, a packmate's, or the player's).
+          // Stand down instead of chasing undefined coords — that would NaN the yaw
+          // and permanently corrupt the dino's position.
+          d.state = 'wander';
+          d.stateT = 0;
+          d.target = null;
         } else {
-          dinoFace(d, tx, tz, dt);
-          if (d.attackCd <= 0) {
-            d.attackT = 0.35;
-            d.attackCd = d.spec.atkCd;
-            if (isPlayer) {
-              player.takeDamage(d.spec.dmg, d.x, d.z);
-            } else if (d.target) {
-              damageDino(d.target, d.spec.dmg, d.x, d.z, ctx);
+          if (d.target) { tx = d.target.x; tz = d.target.z; }
+          else { tx = player.x; tz = player.z; isPlayer = true; }
+          const d2 = dist2d(d.x, d.z, tx, tz);
+          if (d2 > d.spec.atkRange) {
+            moveTo(d, tx, tz, d.spec.run, dt, world);
+          } else {
+            dinoFace(d, tx, tz, dt);
+            if (d.attackCd <= 0) {
+              d.attackT = 0.35;
+              d.attackCd = d.spec.atkCd;
+              if (isPlayer) {
+                player.takeDamage(d.spec.dmg, d.x, d.z);
+              } else if (d.target) {
+                damageDino(d.target, d.spec.dmg, d.x, d.z, ctx);
+              }
+              if (d2 < 60) audio.sfx.roar(d.species);
             }
-            if (d2 < 60) audio.sfx.roar(d.species);
           }
-        }
-        if (d.roarCd <= 0 && d2 < 70) {
-          d.roarCd = d.species === 'trex' ? 6 + Math.random() * 4 : 3 + Math.random() * 3;
-          if (d2 < 65) audio.sfx.roar(d.species);
+          if (d.roarCd <= 0 && d2 < 70) {
+            d.roarCd = d.species === 'trex' ? 6 + Math.random() * 4 : 3 + Math.random() * 3;
+            if (d2 < 65) audio.sfx.roar(d.species);
+          }
         }
       } else if (d.state === 'flee') {
         let tx, tz;
@@ -662,7 +684,7 @@ export function createDinoSystem(scene, world) {
       } else if (d.state === 'follow') {
         // orbit behind player
         let idx = 0;
-        for (const o of dinos) if (o.tamed && o !== d) idx++;
+        for (const o of dinos) if (o.tamed && !o.dead && o !== d) idx++;
         const ang = player.yaw + Math.PI + (idx % 3) * 2.1 - 1.0;
         const rad = 2.4 + (idx % 3) * 1.1;
         const tx = player.x + Math.sin(ang) * rad;
@@ -730,6 +752,7 @@ export function createDinoSystem(scene, world) {
   function setCameraQuat(q) { cameraQuat = q; }
 
   function dinoFace(d, tx, tz, dt) {
+    if (!isFinite(tx) || !isFinite(tz)) return;
     d.yaw = lerpAngle(d.yaw, Math.atan2(tx - d.x, tz - d.z), Math.min(1, dt * 4));
     d.speed = 0;
   }
@@ -807,7 +830,7 @@ export function createDinoSystem(scene, world) {
       if (dist > range + d.spec.hitR) continue;
       const dot = (ox / (dist || 1)) * dirX + (oz / (dist || 1)) * dirZ;
       if (dot < 0.3) continue;
-      damageDino(d, dmg, x, z, ctx);
+      damageDino(d, dmg, x, z, ctx, true); // melee damage always comes from the player
       hitAny = true;
     }
     return hitAny;
@@ -820,6 +843,7 @@ export function createDinoSystem(scene, world) {
         d.state = 'follow';
         d.stateT = 0;
         d.aggro = false;
+        d.aggroPlayer = false;
         any = true;
       }
     }
