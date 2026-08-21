@@ -18,7 +18,7 @@ export function createHud(G) {
     craft: $('craft'), craftList: $('craft-list'),
     toast: $('toast'),
     vignette: $('vignette'),
-    start: $('start'), dead: $('dead'), pause: $('pause'),
+    start: $('start'), dead: $('dead'), pause: $('pause'), help: $('help'),
     tamedCount: $('tamed-count'), tamedMode: $('tamed-mode'),
   };
 
@@ -236,7 +236,7 @@ export function createHud(G) {
   function flashDamage() { vigT = 0.55; }
 
   // ---------- onboarding hints (shown once) ----------
-  const hints = { gather: false, craft: false, night: false, water: false, hunger: false };
+  const hints = { gather: false, craft: false, night: false, water: false, hunger: false, tame: false };
 
   // ---------- main update ----------
   let mmT = 0;
@@ -306,6 +306,10 @@ export function createHud(G) {
     if (!hints.night && G2.time.t > 0.78 && G2.timeAbs > 45) { hints.night = true; toast('Night is falling — build a campfire or torch to stay safe.'); }
     if (!hints.water && p.water < 45) { hints.water = true; toast('You are thirsty — stand in the shallows and press E to drink.'); }
     if (!hints.hunger && p.hunger < 45) { hints.hunger = true; toast('You are hungry — eat berries or cooked meat.'); }
+    if (!hints.tame && (G.inv.count('meat') > 0 || G.inv.count('berry') > 0)) {
+      hints.tame = true;
+      toast('Tame dinos: select food and press F to throw it — Saberclaws eat meat, Mossbacks eat berries.');
+    }
 
     mmT -= dt;
     if (mmT <= 0) { mmT = 0.12; drawMinimap(); }
@@ -325,6 +329,7 @@ export function createHud(G) {
       el.start.classList.toggle('show', name === 'start');
       el.dead.classList.toggle('show', name === 'dead');
       el.pause.classList.toggle('show', name === 'pause');
+      el.help.classList.toggle('show', name === 'help');
     },
   };
 }

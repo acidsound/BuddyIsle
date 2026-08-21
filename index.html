@@ -184,7 +184,20 @@
   .overlay .card {
     text-align: center; padding: 46px 60px;
     max-width: 640px;
+    max-height: 92vh; overflow-y: auto;
   }
+  .help-guide {
+    margin-top: 22px; text-align: left;
+    background: rgba(12, 8, 4, 0.55);
+    border: 2px solid var(--panel-line); border-radius: 12px;
+    padding: 12px 16px;
+  }
+  .help-guide-title {
+    font-size: 13px; font-weight: 800; letter-spacing: 2px;
+    color: var(--gold); text-transform: uppercase; margin-bottom: 8px;
+  }
+  .help-guide p { font-size: 12.5px; line-height: 1.55; color: #d8cbb0; margin: 4px 0; }
+  .help-guide b { color: var(--gold); }
   .title {
     font-size: 58px; font-weight: 900; letter-spacing: 6px;
     color: var(--gold);
@@ -275,6 +288,8 @@
       <b>T</b><span>Call tamed dinos</span>
       <b>M</b><span>Mute</span>
     </div>
+    <div class="dead-sub" style="margin-top:18px">🦕 Tip: throw a dino its favourite food (<b>F</b>) to tame it — Saberclaws like meat, Mossbacks like berries.</div>
+    <div class="dead-sub">Press <b>?</b> in-game anytime for this list</div>
     <div class="begin">CLICK TO BEGIN</div>
   </div>
 </div>
@@ -293,6 +308,36 @@
     <div class="dead-sub">Your dinos are waiting.</div>
     <div class="begin" style="margin-top:26px">CLICK TO RESUME</div>
     <div class="begin ghost" id="pause-mute">SOUND ON</div>
+  </div>
+</div>
+
+<div id="help" class="overlay">
+  <div class="card panel">
+    <div class="pause-title">CONTROLS</div>
+    <div class="controls">
+      <b>W A S D</b><span>Move</span>
+      <b>Mouse</b><span>Look around</span>
+      <b>Shift / Space</b><span>Sprint / Jump</span>
+      <b>Left Click</b><span>Attack</span>
+      <b>E</b><span>Gather · Eat · Drink · Cook · Place</span>
+      <b>F</b><span>Throw food (tame dinos)</span>
+      <b>C</b><span>Crafting</span>
+      <b>G</b><span>Tamed dinos: follow / stay</span>
+      <b>Z</b><span>Sleep through the night</span>
+      <b>1 – 9 / Wheel</b><span>Hotbar</span>
+      <b>T</b><span>Call tamed dinos</span>
+      <b>M</b><span>Mute</span>
+      <b>?</b><span>Show this help</span>
+    </div>
+    <div class="help-guide">
+      <div class="help-guide-title">🦕 Taming guide</div>
+      <p><b>1.</b> Hold food in your hotbar — <b>Saberclaws</b> love <b>Raw Meat</b> (×4), <b>Mossbacks</b> love <b>Berries</b> (×3).</p>
+      <p><b>2.</b> Look at the dino and press <b>F</b> to throw the food. Each hit fills its green taming bar.</p>
+      <p><b>3.</b> When the bar is full the dino joins you, gets a name, and fights beside you.</p>
+      <p><b>4.</b> <b>G</b> makes tamed dinos follow / stay, <b>T</b> calls them back. <b>Rexmaws can't be tamed</b> — and don't hit a dino you're taming, it gets spooked and runs.</p>
+    </div>
+    <div class="dead-sub" style="margin-top:14px">Press <b>?</b> again or <b>Esc</b> to close</div>
+    <div class="begin" style="margin-top:26px">CLICK TO CLOSE</div>
   </div>
 </div>
 

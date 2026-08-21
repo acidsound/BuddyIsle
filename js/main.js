@@ -48,6 +48,8 @@ const G = {
   timeAbs: 0,
   tameFocus: null,
   tamedMode: 'follow',
+  helpOpen: false,
+  helpPrev: null,
   started: false,
   paused: false,
   onDeath() {
@@ -108,6 +110,23 @@ function acquireLock() {
   } catch (e) { /* not allowed right now; ignored */ }
 }
 
+// ---------- in-game controls help (? key) ----------
+function toggleHelp() {
+  if (G.helpOpen) {
+    G.helpOpen = false;
+    hud.setOverlay(G.helpPrev);
+    const resume = G.helpPrev === null;
+    G.helpPrev = null;
+    if (resume && !G.paused) acquireLock();
+  } else if (G.started && !G.player.player.dead) {
+    if (hud.craftOpen()) hud.setCraft(false);
+    G.helpOpen = true;
+    G.helpPrev = G.paused ? 'pause' : null;
+    hud.setOverlay('help');
+    safeExitLock();
+  }
+}
+
 // ---------- input ----------
 window.addEventListener('keydown', e => {
   if (e.repeat) return;
@@ -124,7 +143,17 @@ window.addEventListener('keydown', e => {
     acquireLock();
     return;
   }
-  if (!G.started || G.paused) return;
+  // ESC closes the in-game help
+  if (c === 'Escape' && G.helpOpen) {
+    toggleHelp();
+    return;
+  }
+  // ? (or /) toggles the in-game controls help
+  if ((e.key === '?' || e.key === '/') && G.started) {
+    toggleHelp();
+    return;
+  }
+  if (!G.started || G.paused || G.helpOpen) return;
   if (c === 'KeyE') {
     G.input.eHeld = true;
     if (!hud.craftOpen()) playerMod.contextAction();
@@ -184,7 +213,7 @@ window.addEventListener('keyup', e => {
 
 window.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
-  if (!G.started || G.paused) return;
+  if (!G.started || G.paused || G.helpOpen) return;
   if (hud.craftOpen()) return;
   if (document.pointerLockElement !== canvas) {
     acquireLock();
@@ -194,7 +223,7 @@ window.addEventListener('mousedown', e => {
 });
 
 window.addEventListener('wheel', e => {
-  if (!G.started || G.paused) return;
+  if (!G.started || G.paused || G.helpOpen) return;
   if (hud.craftOpen()) return;
   inv.select(inv.selected + (e.deltaY > 0 ? 1 : -1));
   hud.refreshHotbar();
@@ -212,7 +241,7 @@ document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
   if (!locked) {
     lastLockExit = performance.now();
-    if (G.started && !G.player.player.dead && !hud.craftOpen()) {
+    if (G.started && !G.player.player.dead && !hud.craftOpen() && !G.helpOpen) {
       G.paused = true;
       hud.setOverlay('pause');
       document.getElementById('pause-mute').textContent = audio.muted ? 'SOUND OFF' : 'SOUND ON';
@@ -243,6 +272,9 @@ document.getElementById('pause-mute').addEventListener('click', e => {
   e.stopPropagation();
   const m = audio.toggleMute();
   document.getElementById('pause-mute').textContent = m ? 'SOUND OFF' : 'SOUND ON';
+});
+document.getElementById('help').addEventListener('click', () => {
+  toggleHelp();
 });
 
 // ---------- food projectile meshes ----------
@@ -281,7 +313,7 @@ function frame(now) {
   last = now;
 
   // crafting is a menu: freeze the simulation while it is open
-  if (!G.started || G.paused || hud.craftOpen()) {
+  if (!G.started || G.paused || hud.craftOpen() || G.helpOpen) {
     // idle render so the world is visible behind overlays
     world.update(0.016, G.time.t, G.player.player.x, G.player.player.z, G.buildings);
     particles.update(0.016);
