@@ -133,7 +133,7 @@ export function createHud(G) {
     const sel = G.inv.selectedItem();
     const gs = G.player.ghostState();
     if (sel && sel.build) {
-      setPrompt(gs.valid ? `E — Place ${ITEMS[sel.id].name}` : 'Cannot place here', gs.valid ? '' : 'bad');
+      setPrompt(gs.valid ? `E — Place ${sel.name}` : 'Cannot place here', gs.valid ? '' : 'bad');
       return;
     }
     const fire = G.buildings.find(b => b.type === 'campfire' && Math.hypot(b.x - p.x, b.z - p.z) < 3.6);
@@ -147,11 +147,11 @@ export function createHud(G) {
     const dirX = -Math.sin(p.yaw), dirZ = -Math.cos(p.yaw);
     const dino = G.dinos.findNearestDino(p.x, p.z, dirX, dirZ, 9);
     if (dino && sel && sel.food) {
-      setPrompt(`F — Throw ${ITEMS[sel.id].name} to ${dino.tamed ? dino.name : 'the ' + dino.spec.label.toLowerCase()}`);
+      setPrompt(`F — Throw ${sel.name} to ${dino.tamed ? dino.name : 'the ' + dino.spec.label.toLowerCase()}`);
       return;
     }
     if (sel && sel.food) { setPrompt(`E — Eat  ·  F — Throw`); return; }
-    if (sel && sel.heal) { setPrompt(`E — Use ${ITEMS[sel.id].name}`); return; }
+    if (sel && sel.heal) { setPrompt(`E — Use ${sel.name}`); return; }
     if (G.dinos.tamedCount() > 0) { setPrompt('T — Call your dinos'); return; }
     setPrompt('');
   }

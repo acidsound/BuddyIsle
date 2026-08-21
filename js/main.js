@@ -51,7 +51,7 @@ const G = {
   paused: false,
   onDeath() {
     G.hud.setOverlay('dead');
-    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.pointerLockElement) safeExitLock();
   },
 };
 
@@ -70,6 +70,33 @@ G.hud = hud;
   camera.position.set(p0.x, p0.y + 1.7, p0.z);
   camera.rotation.order = 'YXZ';
   camera.rotation.y = p0.yaw;
+}
+
+// ---------- pointer lock ----------
+// Chrome refuses to re-acquire pointer lock within ~1.25s of exiting it and
+// rejects the request promise (which surfaces as an uncaught SecurityError).
+let lastLockExit = 0;
+const LOCK_RETRY_MS = 1250;
+
+function safeExitLock() {
+  lastLockExit = performance.now();
+  try {
+    const p = document.exitPointerLock();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) { /* already unlocked */ }
+}
+
+function acquireLock() {
+  if (document.pointerLockElement === canvas) return;
+  const wait = LOCK_RETRY_MS - (performance.now() - lastLockExit);
+  if (wait > 0) {
+    setTimeout(acquireLock, wait);
+    return;
+  }
+  try {
+    const p = canvas.requestPointerLock();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) { /* not allowed right now; ignored */ }
 }
 
 // ---------- input ----------
@@ -94,8 +121,8 @@ window.addEventListener('keydown', e => {
   if (c === 'KeyC') {
     const open = hud.craftOpen();
     hud.setCraft(!open);
-    if (!open) { if (document.pointerLockElement) document.exitPointerLock(); }
-    else if (document.pointerLockElement === null) canvas.requestPointerLock();
+    if (!open) { if (document.pointerLockElement) safeExitLock(); }
+    else acquireLock();
   }
   if (c === 'KeyT' && !hud.craftOpen()) {
     if (dinos.callTamed()) hud.toast('Your dinos are coming!');
@@ -129,7 +156,7 @@ window.addEventListener('mousedown', e => {
   if (!G.started || G.paused) return;
   if (hud.craftOpen()) return;
   if (document.pointerLockElement !== canvas) {
-    canvas.requestPointerLock();
+    acquireLock();
     return;
   }
   playerMod.attack();
@@ -151,9 +178,12 @@ window.addEventListener('mousemove', e => {
 
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
-  if (!locked && G.started && !G.player.player.dead && !hud.craftOpen()) {
-    G.paused = true;
-    hud.setOverlay('pause');
+  if (!locked) {
+    lastLockExit = performance.now();
+    if (G.started && !G.player.player.dead && !hud.craftOpen()) {
+      G.paused = true;
+      hud.setOverlay('pause');
+    }
   }
   if (locked) {
     G.paused = false;
@@ -166,15 +196,15 @@ document.getElementById('start').addEventListener('click', () => {
   audio.init();
   G.started = true;
   hud.setOverlay(null);
-  canvas.requestPointerLock();
+  acquireLock();
 });
 document.getElementById('dead').addEventListener('click', () => {
   playerMod.respawn();
   hud.setOverlay(null);
-  canvas.requestPointerLock();
+  acquireLock();
 });
 document.getElementById('pause').addEventListener('click', () => {
-  canvas.requestPointerLock();
+  acquireLock();
 });
 
 // ---------- food projectile meshes ----------
