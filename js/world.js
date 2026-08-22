@@ -129,6 +129,15 @@ function buildTerrain() {
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
   const c = new THREE.Color();
+  const CLIFF = new THREE.Color('#6b6257');
+  const CLIFF_DARK = new THREE.Color('#574f45');
+  // slope sampling helper (analytic finite difference on heightAt)
+  function slopeAt(x, z) {
+    const e = 1.2;
+    const dx = heightAt(x + e, z) - heightAt(x - e, z);
+    const dz = heightAt(x, z + e) - heightAt(x, z - e);
+    return Math.hypot(dx, dz) / (2 * e); // tan of slope angle
+  }
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const h = heightAt(x, z);
@@ -138,8 +147,17 @@ function buildTerrain() {
     const n = fbm(nPatch, x * 0.05, z * 0.05, 2);
     const idx = clamp(Math.floor((n * 0.5 + 0.5) * pal.length), 0, pal.length - 1);
     c.copy(pal[idx]);
-    const shade = 0.94 + 0.12 * (fbm(nPatch, x * 0.11 + 50, z * 0.11 + 50, 2) * 0.5 + 0.5);
-    colors[i * 3] = c.r * shade; colors[i * 3 + 1] = c.g * shade; colors[i * 3 + 2] = c.b * shade;
+    // steep faces read as painted cliff rock — big silhouette win over rolling hills
+    const s = slopeAt(x, z);
+    if (s > 0.55 && h > 1.5) {
+      const k = Math.min(1, (s - 0.55) / 0.65);
+      c.copy(CLIFF).lerp(CLIFF_DARK, fbm(nPatch, x * 0.09 + 90, z * 0.09, 2) * 0.5 + 0.5);
+      c.lerp(pal[idx], Math.max(0, 1 - k) * 0.35);
+    } else {
+      const shade = 0.94 + 0.12 * (fbm(nPatch, x * 0.11 + 50, z * 0.11 + 50, 2) * 0.5 + 0.5);
+      c.multiplyScalar(shade);
+    }
+    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const flat = geo.toNonIndexed();

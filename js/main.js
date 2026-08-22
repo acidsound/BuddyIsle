@@ -9,7 +9,7 @@ import { createParticles } from './particles.js';
 import { createInventory } from './inventory.js';
 
 const canvas = document.getElementById('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -38,6 +38,46 @@ const inv = createInventory();
 inv.add('wood', 4);
 inv.add('stone', 2);
 
+// ---------- post pipeline (poster grade + vignette + hit flash) ----------
+// Full-screen quad pass: cel games live or die by their color grade.
+const POST_VERT = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+const POST_FRAG = `
+uniform sampler2D tScene;
+uniform float uVig, uFlash, uNight, uSunset, uWater;
+uniform vec3 uTint;
+varying vec2 vUv;
+void main(){
+  vec3 col = texture2D(tScene, vUv).rgb;
+  // poster grade: lift shadows slightly warm, cool the highlights, snap saturation
+  float lum = dot(col, vec3(0.299, 0.587, 0.114));
+  col = mix(vec3(lum), col, 1.18);                       // saturation snap
+  col = col * vec3(1.04, 1.0, 0.94) + vec3(0.012, 0.006, 0.02); // warm mids, cool-lifted blacks
+  col = mix(col, col * uTint, 0.35);                     // biome/time tint
+  // chunky comic vignette
+  vec2 d = vUv - 0.5;
+  float vig = 1.0 - dot(d, d) * uVig;
+  col *= clamp(vig, 0.0, 1.0);
+  // damage flash
+  col = mix(col, vec3(0.85, 0.12, 0.10), uFlash * 0.45);
+  gl_FragColor = vec4(col, 1.0);
+}`;
+const postScene = new THREE.Scene();
+const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const rtA = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, { samples: 0 });
+const postUniforms = {
+  tScene: { value: rtA.texture },
+  uVig: { value: 0.55 },
+  uFlash: { value: 0 },
+  uNight: { value: 0 },
+  uSunset: { value: 0 },
+  uWater: { value: 0 },
+  uTint: { value: new THREE.Vector3(1, 1, 1) },
+};
+postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  vertexShader: POST_VERT, fragmentShader: POST_FRAG, uniforms: postUniforms, depthTest: false, depthWrite: false,
+})));
+window.addEventListener('resize', () => { rtA.setSize(window.innerWidth, window.innerHeight); });
+
 const G = {
   scene, camera, renderer,
   world, inv, audio, particles,
@@ -52,6 +92,16 @@ const G = {
   helpPrev: null,
   started: false,
   paused: false,
+  // game feel (juice)
+  fx: {
+    shakeT: 0, shakeAmp: 0,      // camera shake
+    hitstopT: 0,                 // freeze frames on heavy hits
+    flash: 0,                    // damage flash 0..1
+    baseFov: 74,
+  },
+  addShake(amp, dur = 0.3) { const f = G.fx; f.shakeAmp = Math.max(f.shakeAmp, amp); f.shakeT = Math.max(f.shakeT, dur); },
+  hitStop(dur = 0.06) { G.fx.hitstopT = Math.max(G.fx.hitstopT, dur); },
+  damageFlash(strength = 1) { G.fx.flash = Math.max(G.fx.flash, strength); },
   onDeath() {
     // AAA survival consequence: your inventory drops where you fell
     const p = G.player.player;
@@ -318,7 +368,11 @@ function frame(now) {
     world.update(0.016, G.time.t, G.player.player.x, G.player.player.z, G.buildings);
     particles.update(0.016);
     if (!G.started) camera.rotation.y += 0.016 * 0.05; // slow pan behind the title
+    renderer.setRenderTarget(rtA);
     renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    updatePostFx(0.016, G.player.player);
+    renderer.render(postScene, postCam);
     return;
   }
 
@@ -354,6 +408,35 @@ function frame(now) {
 
   hud.update(dt, G);
   hud.refreshHotbar();
+  // post pipeline: scene -> rtA -> graded/vignetted screen (__NOPOST__ bypass)
+  if (window.__NOPOST__) { renderer.render(scene, camera); return; }
+  renderer.setRenderTarget(rtA);
   renderer.render(scene, camera);
+  renderer.setRenderTarget(null);
+  updatePostFx(dt, p);
+  renderer.render(postScene, postCam);
 }
 requestAnimationFrame(frame);
+
+// ---------- post-fx uniform driver ----------
+let flashT = 0;
+function updatePostFx(dt, p) {
+  const env = world.getEnv();
+  const u = postUniforms;
+  // biome + time tint (warm jungle/plains day, cool misty highlands, cold night)
+  const tint = u.uTint.value;
+  if (env.highland) tint.set(0.92, 1.0, 1.08);
+  else if (env.jungle) tint.set(1.06, 1.02, 0.9);
+  else if (env.beach) tint.set(1.05, 1.03, 0.95);
+  else if (env.plains) tint.set(1.04, 1.0, 0.92);
+  else tint.set(1, 1, 1);
+  if (env.night > 0) { tint.x *= 1 - 0.25 * env.night; tint.y *= 1 - 0.15 * env.night; tint.z *= 1; }
+  if (env.sunset > 0) { tint.x += 0.12 * env.sunset; tint.y *= 1 - 0.05 * env.sunset; }
+  // vignette breathes with danger
+  u.uVig.value = 0.55 + (p.health < 30 ? 0.5 : 0);
+  // damage flash decay
+  flashT = Math.max(0, flashT - dt * 2.2);
+  u.uFlash.value = flashT;
+}
+// expose for player damage hook
+window.__damageFlash = () => { flashT = 1; };
