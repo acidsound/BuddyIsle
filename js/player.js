@@ -53,6 +53,8 @@ export function createPlayer(scene, camera, world, ctx) {
   };
 
   // ---------- hands ----------
+  // Rounded, chunky first-person hand: capsule-ish forearm + mitten palm.
+  // Low segment counts keep it stylistically flat; the old box-fingers read as noise at FPS range.
   const hand = new THREE.Group();
   hand.position.set(0.34, -0.36, -0.6);
   hand.rotation.set(0.1, -0.12, 0);
@@ -60,22 +62,23 @@ export function createPlayer(scene, camera, world, ctx) {
 
   const skin = 0xd9a066;
   const sleeve = 0x5a6d8a;
-  const forearm = celPart(new THREE.BoxGeometry(0.15, 0.15, 0.34), sleeve);
-  forearm.position.set(0.02, -0.09, 0.2);
+  // sleeve cuff — slightly wider than the wrist so it reads as a pushed-up sleeve
+  const forearm = celPart(new THREE.CylinderGeometry(0.085, 0.075, 0.34, 10), sleeve);
+  forearm.position.set(0.02, -0.1, 0.22);
   forearm.rotation.x = 0.5;
   hand.add(forearm);
-  const palm = celPart(new THREE.BoxGeometry(0.17, 0.09, 0.19), skin);
+  // palm: flattened rounded box (sphere squashed) reads softer than a sharp box
+  const palm = celPart((() => {
+    const g = new THREE.SphereGeometry(0.11, 12, 8);
+    g.scale(1.0, 0.45, 1.15);
+    return g;
+  })(), skin);
   hand.add(palm);
-  const fingerGeos = [];
-  for (let i = 0; i < 4; i++) {
-    const g = new THREE.BoxGeometry(0.034, 0.03, 0.13);
-    g.translate(-0.055 + i * 0.037, -0.01, -0.14);
-    fingerGeos.push(g);
-  }
-  const thumbGeo = new THREE.BoxGeometry(0.034, 0.03, 0.1);
-  thumbGeo.translate(0.1, -0.02, -0.08);
-  const fingers = celPart(mergeGeoms(fingerGeos.concat([thumbGeo])), skin, { outlineT: 0.012 });
-  hand.add(fingers);
+  // thumb: small angled capsule hugging the palm side
+  const thumb = celPart(new THREE.CapsuleGeometry(0.028, 0.09, 3, 8), skin, { outlineT: 0.012 });
+  thumb.position.set(0.1, -0.01, -0.05);
+  thumb.rotation.set(0.5, 0, -0.7);
+  hand.add(thumb);
 
   // tool meshes
   function makeSpear() {

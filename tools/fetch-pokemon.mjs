@@ -1,7 +1,7 @@
-// Fetch animated low-poly Pokémon GLBs from poly.pizza into assets/monsters/.
+// Fetch animated low-poly Pokémon GLBs from the official poly.pizza API into assets/monsters/.
 //
-// No browser needed: the .glb preview URL is embedded in each model page's HTML
-// (https://static.poly.pizza/<uuid>.glb) and static.poly.pizza is not Cloudflare-gated.
+// Auth: set POLYPIZZA_API_KEY in your environment (or ~/.env). Get a key at
+// https://poly.pizza/settings/dashboard — requests use the `x-auth-token` header.
 //
 // Usage:
 //   cd tools && node fetch-pokemon.mjs            # all models
@@ -16,49 +16,50 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'assets', 'monsters');
 
-// poly.pizza/m/<id> -> slug
+const KEY = process.env.POLYPIZZA_API_KEY;
+if (!KEY) {
+  console.error('POLYPIZZA_API_KEY not set. Add it to your env or ~/.env:');
+  console.error('  POLYPIZZA_API_KEY=<your key>');
+  process.exit(1);
+}
+
+// slug -> search term (resolved via /v1.1/search)
 const MODELS = {
-  pikachu:    '9Apgj-wpfgb',
-  charmander: 'd6Ar6_NHbgS',
-  squirtle:   'b9AHRGUN8jM',
-  bulbasaur:  'aQA7Ls8Y79f',
-  snorlax:    '2Rocc4_ltUy',
-  eevee:      '62QYyQZtnMl',
-  jigglypuff: '2yQA0j-YAj6',
-  mew:        '3riRBivJah7',
-  haunter:    'e4shTQwFTFk',
-  magikarp:   '5RqQmne01WF',
-  magnemite:  '4ps4-cVyDax',
-  pokeball:   '5XpesCyaPe-',
+  pikachu:    'pikachu',
+  charmander: 'charmander',
+  squirtle:   'squirtle',
+  bulbasaur:  'bulbasaur',
+  snorlax:    'snorlax',
+  eevee:      'eevee',
+  jigglypuff: 'jigglypuff',
+  mew:        'mew',
+  haunter:    'haunter',
+  magikarp:   'magikarp',
+  magnemite:  'magnemite',
+  pokeball:   'pokeball',
 };
 
-const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36';
+async function api(pathname) {
+  const res = await fetch(`https://api.poly.pizza/v1.1/${pathname}`, {
+    headers: { 'x-auth-token': KEY },
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return res.json();
+}
 
-async function fetchModel(slug, id) {
-  const dest = path.join(OUT, `${slug}.glb`);
-  if (fs.existsSync(dest) && fs.statSync(dest).size > 10_000) {
-    console.log(`✓ ${slug}: already exists, skipping`);
-    return true;
-  }
-  console.log(`→ ${slug} (https://poly.pizza/m/${id})`);
-  const html = await (await fetch(`https://poly.pizza/m/${id}`, {
-    headers: { 'user-agent': UA },
-  })).text();
-  const m = html.match(/https:\/\/static\.poly\.pizza\/[^"'\s]+\.glb/i);
-  if (!m) {
-    console.error(`  ✗ ${slug}: no .glb URL in page HTML`);
-    return false;
-  }
-  const res = await fetch(m[0], { headers: { 'user-agent': UA } });
-  if (!res.ok) {
-    console.error(`  ✗ ${slug}: download failed (${res.status})`);
-    return false;
-  }
+async function resolveModel(term) {
+  const data = await api(`search/${encodeURIComponent(term)}`);
+  const results = data.results || data.models || [];
+  // exact-title match first, then first hit
+  return results.find(m => (m.Title || '').toLowerCase() === term) || results[0] || null;
+}
+
+async function download(url, dest) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`download ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
-  fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(dest, buf);
-  console.log(`  ✓ saved ${dest} (${(buf.length / 1024).toFixed(0)} KB) [${m[0]}]`);
-  return true;
+  return buf.length;
 }
 
 const only = process.argv.slice(2);
@@ -68,14 +69,24 @@ if (targets.length === 0) {
   process.exit(1);
 }
 
+fs.mkdirSync(OUT, { recursive: true });
 let ok = 0;
 for (const slug of targets) {
+  const dest = path.join(OUT, `${slug}.glb`);
+  if (fs.existsSync(dest) && fs.statSync(dest).size > 10_000) {
+    console.log(`✓ ${slug}: already exists, skipping`);
+    ok++;
+    continue;
+  }
   try {
-    if (await fetchModel(slug, MODELS[slug])) ok++;
-    await new Promise(r => setTimeout(r, 1500)); // be polite
+    const model = await resolveModel(MODELS[slug]);
+    if (!model || !model.Download) throw new Error('no download URL');
+    const bytes = await download(model.Download, dest);
+    console.log(`✓ ${slug}: ${(bytes / 1024).toFixed(0)} KB  [${model.Title} by ${model.Creator?.Username}]`);
+    ok++;
   } catch (e) {
-    console.error(`  ✗ ${slug}: ${e.message.slice(0, 120)}`);
+    console.error(`✗ ${slug}: ${e.message.slice(0, 100)}`);
   }
 }
-console.log(`\nDone: ${ok}/${targets.length} saved to assets/monsters/`);
+console.log(`\nDone: ${ok}/${targets.length} in assets/monsters/`);
 console.log('Next: git add assets/monsters && git commit && git push');

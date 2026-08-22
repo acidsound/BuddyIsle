@@ -1,40 +1,13 @@
 // Dinosaurs: procedural cel-shaded models, animation, AI, taming, combat.
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
+import { SPECIES, POPULATION, TEST_POPULATION } from './species.js';
 import { clamp, lerpAngle, dist2d, makeRng } from './noise.js';
 import { makeToon, outlineMaterial, celPart, inflate, mergeGeoms, INK } from './world.js';
 
-const NAME_POOL = ['Biscuit', 'Chomp', 'Moss', 'Tango', 'Pebble', 'Fang', 'Sunny', 'Gnaw', 'Boulder', 'Rex', 'Nugget', 'Waffles'];
+export { SPECIES };
 
-export const SPECIES = {
-  raptor: {
-    kind: 'theropod', label: 'Saberclaw',
-    scale: 0.92, walk: 3.4, run: 10, hp: 55, dmg: 8, atkRange: 2.4, atkCd: 1.0,
-    body: 0x6b8f3f, belly: 0xd8cfa0, accent: 0xff7a1a, eye: 0xffd23d,
-    sil: 0x242b1c, silAccent: 0xff9a3d,
-    tameFood: 'meat', tameFeeds: 4,
-    loot: { meat: [2, 3] },
-    hitR: 1.1, avoidWater: false,
-  },
-  bronto: {
-    kind: 'sauropod', label: 'Mossback',
-    scale: 1.55, walk: 1.9, run: 6, hp: 320, dmg: 18, atkRange: 3.4, atkCd: 1.7,
-    body: 0x9a7d55, belly: 0xcfc0a0, accent: 0xffc23d, eye: 0x3a2a1a,
-    sil: 0x2e2a20, silAccent: 0xffc23d,
-    tameFood: 'berry', tameFeeds: 3,
-    loot: { meat: [5, 8], leaf: [2, 4] },
-    hitR: 3.4, avoidWater: true,
-  },
-  trex: {
-    kind: 'theropod', label: 'Rexmaw',
-    scale: 2.1, walk: 2.7, run: 11, hp: 420, dmg: 28, atkRange: 3.2, atkCd: 1.5,
-    body: 0x4a5d43, belly: 0x8a9478, accent: 0xff3b30, eye: 0xff3b30,
-    sil: 0x1c211a, silAccent: 0xff5040,
-    tameFood: null,
-    loot: { meat: [6, 10] },
-    hitR: 2.6, avoidWater: true,
-  },
-};
+const NAME_POOL = ['Biscuit', 'Chomp', 'Moss', 'Tango', 'Pebble', 'Fang', 'Sunny', 'Gnaw', 'Boulder', 'Rex', 'Nugget', 'Waffles'];
 
 // ---------- model builders ----------
 function box(w, h, d, tx = 0, ty = 0, tz = 0) {
@@ -208,63 +181,66 @@ function buildSauropod(spec) {
   return rig;
 }
 
-// ---------- GLB model cache (Quaternius CC0 monster, replaces procedural rigs) ----------
-let _glbPromise = null;
-function loadCreatureGLB() {
-  if (!_glbPromise) {
+// ---------- GLB model cache (per-species Pokémon GLBs from assets/monsters/) ----------
+const _glbCache = new Map(); // slug -> Promise<glTF>
+function loadSpeciesGLB(slug) {
+  if (!_glbCache.has(slug)) {
     const loader = new GLTFLoader();
-    _glbPromise = new Promise((resolve, reject) => {
-      loader.load('assets/models/CreepCreature.glb', resolve, undefined, reject);
-    });
+    _glbCache.set(slug, new Promise((resolve, reject) => {
+      loader.load(`assets/monsters/${slug}`, resolve, undefined, reject);
+    }));
   }
-  return _glbPromise;
+  return _glbCache.get(slug);
 }
 
-// Map game states/actions to the GLB's animation clips.
-const CLIP_MAP = {
-  idle: ['Idle1_Action', 'Idle2_Action', 'Sleep_loop_Action'],
-  walk: ['Walk1_Action'],
-  run: ['Walk2_Action'],
-  attack: ['Bite_Action', 'Punch_Action'],
-  death: ['Death_Action'],
-  eat: ['Eating_Action'],
-  flee: ['Walk2_Action'],
-  roar: ['Roar_Action'],
-};
+// Convert a loaded GLB scene into the game's cel look: MeshToonMaterial + ink outlines.
+function applyCelStyle(root, spec, rng) {
+  const toonMats = new Map(); // original color hex -> shared toon material
+  root.traverse(o => {
+    if (!o.isMesh || !o.material) return;
+    const srcColor = o.material.color ? o.material.color.getHex() : spec.body;
+    if (!toonMats.has(srcColor)) {
+      // keep the artist's palette but render it poster-flat with the 4-step gradient
+      toonMats.set(srcColor, makeToon(srcColor));
+    }
+    o.material = toonMats.get(srcColor);
+    o.castShadow = false;
+    // inverted-hull ink outline, scaled to model size
+    const geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry;
+    const outline = new THREE.Mesh(
+      inflate(geo, 0.035),
+      outlineMaterial()
+    );
+    o.add(outline);
+  });
+}
 
-// Build a rig from the loaded GLB: clone skinned mesh, set up AnimationMixer,
-// keep the same rig interface (root, bar, head...) the AI/animation code expects.
+// Build a rig from a loaded GLB: normalize size to the species scale, apply the cel look,
+// keep the same rig interface (root, bar, ...) the AI/animation code expects.
 function buildGltfRig(gltf, spec) {
   const root = new THREE.Group();
   const model = gltf.scene;
-  // Normalize size: fit to ~2.2 units tall, feet at y=0
+  // Normalize: species scale sets target height, feet at y=0
   const bbox = new THREE.Box3().setFromObject(model);
   const size = new THREE.Vector3(); bbox.getSize(size);
-  const s = 2.2 / (size.y || 1);
+  const s = (2.0 * spec.scale) / (size.y || 1);
   model.scale.setScalar(s);
   const bb2 = new THREE.Box3().setFromObject(model);
   model.position.y = -bb2.min.y;
   root.add(model);
 
-  // Toon-ish tint per species via material color multiply
-  const tint = new THREE.Color(spec.body).lerp(new THREE.Color(0xffffff), 0.35);
-  model.traverse(o => {
-    if (o.isMesh && o.material) {
-      o.material = o.material.clone();
-      if (o.material.color) o.material.color.lerp(tint, 0.5);
-      o.castShadow = false;
-    }
-  });
+  // cel-shade + ink outlines in the artist's own palette
+  applyCelStyle(model, spec);
 
-  // mixer + named actions
+  // mixer for optional clips (these GLBs have none, but harmless)
   const mixer = new THREE.AnimationMixer(model);
   const actions = {};
-  for (const clip of gltf.animations) {
+  for (const clip of gltf.animations || []) {
     actions[clip.name] = mixer.clipAction(clip);
   }
 
   const bar = makeHpBar(spec.hitR * 2);
-  bar.position.set(0, 2.6, 0);
+  bar.position.set(0, size.y * s * spec.scale + 0.5, 0);
   root.add(bar);
 
   return {
@@ -500,21 +476,25 @@ export function createDinoSystem(scene, world) {
     return { x: 0, z: 0 };
   }
 
-  // initial population
-  const t1 = findSpawn(['highland', 'plains'], 8, 40);
-  spawnAt('trex', t1.x, t1.z);
-  for (let i = 0; i < 4; i++) {
-    const p = findSpawn(['plains', 'jungle'], 1.5, 16);
-    spawnAt('bronto', p.x, p.z);
-  }
-  for (let i = 0; i < 7; i++) {
-    const p = findSpawn(['jungle'], 1.5, 14);
-    spawnAt('raptor', p.x, p.z);
+  // initial population from the species registry (biome-aware placement)
+  // TEST_POPULATION (raptor/bronto/trex) is included so the verify-*.mjs suites —
+  // which reference those species directly — keep exercising real spawns.
+  const initialCounts = {};
+  for (const entry of [...POPULATION, ...TEST_POPULATION]) {
+    initialCounts[entry.species] = entry.count;
+    const spec = SPECIES[entry.species];
+    const biomes = spec.biomes || ['plains'];
+    const minH = spec.aquatic ? -1.5 : 0.8;
+    const maxH = biomes.includes('highland') ? 40 : 16;
+    for (let i = 0; i < entry.count; i++) {
+      const p = findSpawn(biomes, minH, maxH);
+      spawnAt(entry.species, p.x, p.z);
+    }
   }
 
   // island repopulation: keep the ecosystem at its starting density
-  const initialCounts = { trex: 1, bronto: 4, raptor: 7 };
-  const pendingRespawn = { trex: 0, bronto: 0, raptor: 0 };
+  const pendingRespawn = {};
+  for (const k of Object.keys(initialCounts)) pendingRespawn[k] = 0;
   function repopulate(dt) {
     for (const key of Object.keys(initialCounts)) {
       let living = 0;
@@ -524,8 +504,9 @@ export function createDinoSystem(scene, world) {
       else {
         pendingRespawn[key] -= dt;
         if (pendingRespawn[key] <= 0) {
-          const biomes = key === 'trex' ? ['highland', 'plains'] : key === 'bronto' ? ['plains', 'jungle'] : ['jungle'];
-          const pt = findSpawn(biomes, key === 'trex' ? 8 : 1.5, key === 'trex' ? 40 : 16);
+          const spec = SPECIES[key];
+          const biomes = spec.biomes || ['plains'];
+          const pt = findSpawn(biomes, spec.aquatic ? -1.5 : 1.5, 16);
           spawnAt(key, pt.x, pt.z);
           pendingRespawn[key] = 0;
         }
@@ -647,19 +628,25 @@ export function createDinoSystem(scene, world) {
 
       // --- decide state ---
       if (d.tamed) {
-        // defense: only predators near the player are threats — a grazing bronto
-        // wandering past must not make a tamed raptor jump it
-        let threat = null;
-        for (const o of dinos) {
-          if (o === d || o.dead || o.tamed) continue;
-          if (o.species !== 'raptor' && o.species !== 'trex') continue;
-          const od = dist2d(d.x, d.z, o.x, o.z);
-          if (od < 14 || dist2d(o.x, o.z, player.x, player.z) < 16) { threat = o; break; }
+        // STAY is a strict order: only an angry-at-player override breaks it,
+        // never ambient threat hunting (that's what FOLLOW mode is for).
+        if (ctx.tamedMode === 'stay' && !d.aggroPlayer) {
+          d.state = 'stay';
+        } else {
+          // defense: only predators near the player are threats — a grazing bronto
+          // wandering past must not make a tamed raptor jump it
+          let threat = null;
+          const predatorNames = ['raptor', 'trex', 'charmander', 'haunter', 'magnemite'];
+          for (const o of dinos) {
+            if (o === d || o.dead || o.tamed) continue;
+            if (!predatorNames.includes(o.species)) continue;
+            const od = dist2d(d.x, d.z, o.x, o.z);
+            if (od < 14 || dist2d(o.x, o.z, player.x, player.z) < 16) { threat = o; break; }
+          }
+          if (threat) { d.state = 'hunt'; d.target = threat; }
+          else if (d.aggro && d.aggroPlayer) { d.state = 'hunt'; d.target = null; } // angry at player
+          else d.state = 'follow';
         }
-        if (threat) { d.state = 'hunt'; d.target = threat; }
-        else if (d.aggro && d.aggroPlayer) { d.state = 'hunt'; d.target = null; } // angry at player
-        else if (ctx.tamedMode === 'stay') d.state = 'stay';     // commanded to hold
-        else d.state = 'follow';
       } else if (d.species === 'bronto') {
         const t = threatForBronto(d, dinos, player);
         if (t) { d.state = 'flee'; d.target = t; }
@@ -953,23 +940,25 @@ export function createDinoSystem(scene, world) {
   }
 
   async function initModels() {
-    let gltf = null;
-    try { gltf = await loadCreatureGLB(); }
-    catch (e) { console.warn('GLB load failed, using procedural dinos', e); }
+    // swap each dino's procedural rig for its species GLB rig (per-species models)
     for (const d of dinos) {
       if (d.gltfApplied) continue;
       d.gltfApplied = true;
-      if (!gltf) continue;
-      // swap procedural rig for GLB rig in place
-      const oldRoot = d.rig.root;
-      scene.remove(oldRoot);
-      const rig = buildGltfRig(gltf, d.spec);
-      rig.root.position.copy(oldRoot.position);
-      rig.root.rotation.y = oldRoot.rotation.y;
-      scene.add(rig.root);
-      d.rig = rig;
-      // rebind partList (empty for GLB — silhouette LOD swaps are skipped)
-      d.partList = [];
+      if (!d.spec.glb) continue;
+      try {
+        const gltf = await loadSpeciesGLB(d.spec.glb);
+        const oldRoot = d.rig.root;
+        scene.remove(oldRoot);
+        const rig = buildGltfRig(gltf, d.spec);
+        rig.root.position.copy(oldRoot.position);
+        rig.root.rotation.y = oldRoot.rotation.y;
+        scene.add(rig.root);
+        d.rig = rig;
+        // rebind partList (empty for GLB — silhouette LOD swaps are skipped)
+        d.partList = [];
+      } catch (e) {
+        console.warn(`GLB load failed for ${d.species} (${d.spec.glb}), keeping procedural rig`, e.message);
+      }
     }
   }
 
