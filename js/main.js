@@ -118,6 +118,8 @@ const G = {
 
 const dinos = createDinoSystem(scene, world);
 G.dinos = dinos;
+// swap procedural rigs for the species GLB models once loaded
+dinos.initModels();
 window.G = G; // debug/testing hook
 
 const playerMod = createPlayer(scene, camera, world, G);
