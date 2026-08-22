@@ -833,15 +833,9 @@ export function createDinoSystem(scene, world) {
 
     // animate
       if (d.rig.mixer) {
-        // GLB rig: pick clip from state
-        const r = d.rig;
-        if (d.dead) { playAction(r, CLIP_MAP.death, 0.15); }
-        else if (d.attackT > 0) { playAction(r, CLIP_MAP.attack, 0.1); }
-        else if (d.state === 'graze' || d.feedFxT > 0) { playAction(r, CLIP_MAP.eat); }
-        else if (d.state === 'hunt' || d.state === 'flee') { playAction(r, CLIP_MAP.run); }
-        else if (d.speed > 0.5) { playAction(r, CLIP_MAP.walk); }
-        else { playAction(r, CLIP_MAP.idle); }
-        r.mixer.update(dt);
+        // GLB rig: these pokemon GLBs ship without animation clips — just tick the mixer.
+        d.rig.mixer.update(dt);
+        animateDino(d, dt, speed, ctx);
       } else {
         animateDino(d, dt, speed, ctx);
       }
