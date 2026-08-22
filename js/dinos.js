@@ -186,18 +186,39 @@ const _glbCache = new Map(); // slug -> Promise<glTF>
 function loadSpeciesGLB(slug) {
   if (!_glbCache.has(slug)) {
     const loader = new GLTFLoader();
-    _glbCache.set(slug, new Promise((resolve, reject) => {
-      loader.load(`assets/monsters/${slug}`, resolve, undefined, reject);
-    }));
+    // fetch + parse instead of loader.load(): no FileLoader relative-URL quirks.
+    // Browser: fetch(baseURI + path). Node/tests: fs.readFileSync (fetch can't do file://).
+    _glbCache.set(slug, (async () => {
+      let buf;
+      if (typeof process !== 'undefined' && process.versions?.node && (!globalThis.document?.baseURI || !globalThis.document.baseURI.startsWith('http'))) {
+        const fs = await import('node:fs');
+        buf = fs.readFileSync(new URL(`../assets/monsters/${slug}`, import.meta.url));
+      } else {
+        const url = new URL(`assets/monsters/${slug}`, globalThis.document.baseURI).href;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+        buf = await res.arrayBuffer();
+      }
+      // GLTFLoader.parse needs a real ArrayBuffer — a Node Buffer is a Uint8Array view
+      if (!(buf instanceof ArrayBuffer)) {
+        buf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      }
+      return new Promise((resolve, reject) => loader.parse(buf, '', resolve, reject));
+    })());
   }
   return _glbCache.get(slug);
 }
 
 // Convert a loaded GLB scene into the game's cel look: MeshToonMaterial + ink outlines.
-function applyCelStyle(root, spec, rng) {
+// NOTE: collect meshes FIRST, then modify — adding outline children during traverse()
+// makes traverse visit the outlines too (they're meshes) and recurse forever.
+function applyCelStyle(root, spec) {
   const toonMats = new Map(); // original color hex -> shared toon material
+  const targets = [];
   root.traverse(o => {
-    if (!o.isMesh || !o.material) return;
+    if (o.isMesh && o.material) targets.push(o);
+  });
+  for (const o of targets) {
     const srcColor = o.material.color ? o.material.color.getHex() : spec.body;
     if (!toonMats.has(srcColor)) {
       // keep the artist's palette but render it poster-flat with the 4-step gradient
@@ -212,7 +233,7 @@ function applyCelStyle(root, spec, rng) {
       outlineMaterial()
     );
     o.add(outline);
-  });
+  }
 }
 
 // Build a rig from a loaded GLB: normalize size to the species scale, apply the cel look,
