@@ -118,6 +118,7 @@ const G = {
 
 const dinos = createDinoSystem(scene, world);
 G.dinos = dinos;
+window.G = G; // debug/testing hook
 
 const playerMod = createPlayer(scene, camera, world, G);
 G.player = playerMod;

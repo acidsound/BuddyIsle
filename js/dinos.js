@@ -1,5 +1,6 @@
 // Dinosaurs: procedural cel-shaded models, animation, AI, taming, combat.
 import * as THREE from 'three';
+import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { clamp, lerpAngle, dist2d, makeRng } from './noise.js';
 import { makeToon, outlineMaterial, celPart, inflate, mergeGeoms, INK } from './world.js';
 
@@ -207,6 +208,84 @@ function buildSauropod(spec) {
   return rig;
 }
 
+// ---------- GLB model cache (Quaternius CC0 monster, replaces procedural rigs) ----------
+let _glbPromise = null;
+function loadCreatureGLB() {
+  if (!_glbPromise) {
+    const loader = new GLTFLoader();
+    _glbPromise = new Promise((resolve, reject) => {
+      loader.load('assets/models/CreepCreature.glb', resolve, undefined, reject);
+    });
+  }
+  return _glbPromise;
+}
+
+// Map game states/actions to the GLB's animation clips.
+const CLIP_MAP = {
+  idle: ['Idle1_Action', 'Idle2_Action', 'Sleep_loop_Action'],
+  walk: ['Walk1_Action'],
+  run: ['Walk2_Action'],
+  attack: ['Bite_Action', 'Punch_Action'],
+  death: ['Death_Action'],
+  eat: ['Eating_Action'],
+  flee: ['Walk2_Action'],
+  roar: ['Roar_Action'],
+};
+
+// Build a rig from the loaded GLB: clone skinned mesh, set up AnimationMixer,
+// keep the same rig interface (root, bar, head...) the AI/animation code expects.
+function buildGltfRig(gltf, spec) {
+  const root = new THREE.Group();
+  const model = gltf.scene;
+  // Normalize size: fit to ~2.2 units tall, feet at y=0
+  const bbox = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3(); bbox.getSize(size);
+  const s = 2.2 / (size.y || 1);
+  model.scale.setScalar(s);
+  const bb2 = new THREE.Box3().setFromObject(model);
+  model.position.y = -bb2.min.y;
+  root.add(model);
+
+  // Toon-ish tint per species via material color multiply
+  const tint = new THREE.Color(spec.body).lerp(new THREE.Color(0xffffff), 0.35);
+  model.traverse(o => {
+    if (o.isMesh && o.material) {
+      o.material = o.material.clone();
+      if (o.material.color) o.material.color.lerp(tint, 0.5);
+      o.castShadow = false;
+    }
+  });
+
+  // mixer + named actions
+  const mixer = new THREE.AnimationMixer(model);
+  const actions = {};
+  for (const clip of gltf.animations) {
+    actions[clip.name] = mixer.clipAction(clip);
+  }
+
+  const bar = makeHpBar(spec.hitR * 2);
+  bar.position.set(0, 2.6, 0);
+  root.add(bar);
+
+  return {
+    root, bar, gltfModel: model, mixer, actions,
+    current: null,
+    // legacy fields so animateDino/AI don't crash:
+    tail: [], legs: [], arms: [],
+    torso: null, body: null, jaw: null, head: null,
+  };
+}
+
+function playAction(rig, names, fade = 0.25) {
+  const name = names.find(n => rig.actions[n]);
+  if (!name || rig.current === name) return;
+  const next = rig.actions[name];
+  const prev = rig.current ? rig.actions[rig.current] : null;
+  next.reset().fadeIn(fade).play();
+  if (prev) prev.fadeOut(fade);
+  rig.current = name;
+}
+
 function makeHpBar(w) {
   const g = new THREE.Group();
   const bg = new THREE.Mesh(new THREE.PlaneGeometry(w, 0.22), new THREE.MeshBasicMaterial({ color: INK, toneMapped: false, transparent: true, opacity: 0.85 }));
@@ -220,9 +299,14 @@ function makeHpBar(w) {
 
 // ---------- dino factory ----------
 let nextId = 1;
-export function createDino(scene, speciesKey, x, z, world, rng) {
+export function createDino(scene, speciesKey, x, z, world, rng, gltf = null) {
   const spec = SPECIES[speciesKey];
-  const rig = spec.kind === 'theropod' ? buildTheropod(spec) : buildSauropod(spec);
+  let rig;
+  if (gltf) {
+    rig = buildGltfRig(gltf, spec);
+  } else {
+    rig = spec.kind === 'theropod' ? buildTheropod(spec) : buildSauropod(spec);
+  }
   const root = rig.root;
   root.position.set(x, world.heightAt(x, z), z);
   scene.add(root);
@@ -739,8 +823,20 @@ export function createDinoSystem(scene, world) {
         if (bar.userData.fg) bar.userData.fg.material.color.set(0xe5484d);
       }
 
-      // animate
-      animateDino(d, dt, speed, ctx);
+    // animate
+      if (d.rig.mixer) {
+        // GLB rig: pick clip from state
+        const r = d.rig;
+        if (d.dead) { playAction(r, CLIP_MAP.death, 0.15); }
+        else if (d.attackT > 0) { playAction(r, CLIP_MAP.attack, 0.1); }
+        else if (d.state === 'graze' || d.feedFxT > 0) { playAction(r, CLIP_MAP.eat); }
+        else if (d.state === 'hunt' || d.state === 'flee') { playAction(r, CLIP_MAP.run); }
+        else if (d.speed > 0.5) { playAction(r, CLIP_MAP.walk); }
+        else { playAction(r, CLIP_MAP.idle); }
+        r.mixer.update(dt);
+      } else {
+        animateDino(d, dt, speed, ctx);
+      }
     }
 
     separateDinos(dinos, dt);
@@ -856,6 +952,27 @@ export function createDinoSystem(scene, world) {
     return n;
   }
 
+  async function initModels() {
+    let gltf = null;
+    try { gltf = await loadCreatureGLB(); }
+    catch (e) { console.warn('GLB load failed, using procedural dinos', e); }
+    for (const d of dinos) {
+      if (d.gltfApplied) continue;
+      d.gltfApplied = true;
+      if (!gltf) continue;
+      // swap procedural rig for GLB rig in place
+      const oldRoot = d.rig.root;
+      scene.remove(oldRoot);
+      const rig = buildGltfRig(gltf, d.spec);
+      rig.root.position.copy(oldRoot.position);
+      rig.root.rotation.y = oldRoot.rotation.y;
+      scene.add(rig.root);
+      d.rig = rig;
+      // rebind partList (empty for GLB — silhouette LOD swaps are skipped)
+      d.partList = [];
+    }
+  }
+
   return {
     dinos,
     update,
@@ -867,5 +984,6 @@ export function createDinoSystem(scene, world) {
     callTamed,
     tamedCount,
     spawnAt,
+    initModels,
   };
 }
