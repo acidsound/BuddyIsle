@@ -861,6 +861,9 @@ export function createDinoSystem(scene, world) {
     const moveAmt = clamp(speed / run, 0, 1);
     d.phase += dt * (1.2 + speed * 0.75);
     const ph = d.phase;
+    // GLB rigs have no procedural parts (legs/tail/head are null stubs) —
+    // only the body bob below applies to them.
+    const isGlb = !!r.gltfModel;
 
     // legs
     for (let i = 0; i < r.legs.length; i++) {
@@ -882,8 +885,10 @@ export function createDinoSystem(scene, world) {
     let headPitch = Math.sin(ph * 1.3) * 0.05 * moveAmt;
     if (d.state === 'graze') headPitch = 0.55 + Math.sin(ph * 2.2) * 0.06;
     if (d.state === 'follow') headPitch = 0.12;
-    r.head.rotation.x = headPitch;
-    r.head.rotation.y = Math.sin(ph * 0.7) * 0.08 * moveAmt;
+    if (r.head) {
+      r.head.rotation.x = headPitch;
+      r.head.rotation.y = Math.sin(ph * 0.7) * 0.08 * moveAmt;
+    }
     // breathing
     const breathe = 1 + Math.sin(ph * 1.1) * 0.02;
     if (r.torso) r.torso.scale.y = breathe;
@@ -894,11 +899,11 @@ export function createDinoSystem(scene, world) {
     if (d.attackT > 0) {
       d.attackT -= dt;
       const k = Math.sin((1 - d.attackT / 0.35) * Math.PI);
-      r.jaw.rotation.x = -1.05 * k;
-      r.head.rotation.x = headPitch - 0.25 * k;
+      if (r.jaw) r.jaw.rotation.x = -1.05 * k;
+      if (r.head) r.head.rotation.x = headPitch - 0.25 * k;
       if (r.arms) for (const a of r.arms) a.rotation.x = -0.9 * k;
     } else {
-      r.jaw.rotation.x = 0;
+      if (r.jaw) r.jaw.rotation.x = 0;
       if (r.arms) for (const a of r.arms) a.rotation.x = Math.sin(ph * 2) * 0.15 * moveAmt;
     }
   }
