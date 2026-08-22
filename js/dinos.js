@@ -1,7 +1,7 @@
 // Dinosaurs: procedural cel-shaded models, animation, AI, taming, combat.
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
-import { SPECIES, POPULATION, TEST_POPULATION } from './species.js';
+import { SPECIES, POPULATION } from './species.js';
 import { clamp, lerpAngle, dist2d, makeRng } from './noise.js';
 import { makeToon, outlineMaterial, celPart, inflate, mergeGeoms, INK } from './world.js';
 
@@ -498,10 +498,8 @@ export function createDinoSystem(scene, world) {
   }
 
   // initial population from the species registry (biome-aware placement)
-  // TEST_POPULATION (raptor/bronto/trex) is included so the verify-*.mjs suites —
-  // which reference those species directly — keep exercising real spawns.
   const initialCounts = {};
-  for (const entry of [...POPULATION, ...TEST_POPULATION]) {
+  for (const entry of POPULATION) {
     initialCounts[entry.species] = entry.count;
     const spec = SPECIES[entry.species];
     const biomes = spec.biomes || ['plains'];
