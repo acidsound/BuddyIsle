@@ -561,6 +561,12 @@ export function createPlayer(scene, camera, world, ctx) {
     } else {
       player.moveAmt = 0;
     }
+    // expose actual movement for the pet-follow logic: pets only trail while
+    // the player is genuinely moving (and remember where to hold position)
+    player.isMoving = ml > 0;
+    if (ml > 0 || !player.lastMovePos) {
+      player.lastMovePos = { x: player.x, z: player.z, yaw: player.yaw };
+    }
     // island bound
     const dc = Math.hypot(player.x, player.z);
     if (dc > 184) {

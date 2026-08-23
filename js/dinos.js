@@ -797,20 +797,28 @@ export function createDinoSystem(scene, world) {
         d.speed = 0;
         dinoFace(d, player.x, player.z, dt * 2);
       } else if (d.state === 'follow') {
-        // trail BEHIND the player's path, like a duckling — never crowd them.
-        // Slot 0 trails the player's back; later partners fan out slightly.
+        // Pet behaviour: only trail while the player is MOVING. The moment they
+        // stop, partners walk to their slot around the last movement position,
+        // settle, and stay there — even if the player spins the camera around.
         let idx = 0;
         for (const o of dinos) if (o.tamed && !o.dead && o !== d) idx++;
-        // anchor point: a few metres behind where the player currently stands
-        const behindX = player.x - Math.sin(player.yaw) * (2.2 + idx * 1.4);
-        const behindZ = player.z - Math.cos(player.yaw) * (2.2 + idx * 1.4);
+        const anchor = player.isMoving ? player : player.lastMovePos;
+        const yawRef = player.isMoving ? player.yaw : anchor.yaw;
+        const behindX = anchor.x - Math.sin(yawRef) * (2.2 + idx * 1.4);
+        const behindZ = anchor.z - Math.cos(yawRef) * (2.2 + idx * 1.4);
         // lateral offset so partners don't stack in a single file line
         const side = (idx % 2 === 0 ? 1 : -1) * (0.8 + Math.floor(idx / 2) * 0.5);
-        const tx = behindX + Math.cos(player.yaw) * side;
-        const tz = behindZ - Math.sin(player.yaw) * side;
+        const tx = behindX + Math.cos(yawRef) * side;
+        const tz = behindZ - Math.sin(yawRef) * side;
         const d2 = dist2d(d.x, d.z, tx, tz);
-        if (d2 > 1.6) moveTo(d, tx, tz, d2 > 8 ? d.spec.run : d.spec.walk, dt, world);
-        else { d.speed = 0; dinoFace(d, player.x, player.z, dt); }
+        if (player.isMoving) {
+          if (d2 > 1.6) moveTo(d, tx, tz, d2 > 8 ? d.spec.run : d.spec.walk, dt, world);
+          else { d.speed = 0; dinoFace(d, player.x, player.z, dt); }
+        } else {
+          // player stopped: settle into slot, then hold facing the player
+          if (d2 > 0.8) moveTo(d, tx, tz, d2 > 6 ? d.spec.run : d.spec.walk, dt, world);
+          else { d.speed = 0; dinoFace(d, player.x, player.z, dt); }
+        }
       } else if (d.state === 'wander') {
         if (!d.wanderPt) { d.stateT = 0; }
         else {
