@@ -223,7 +223,7 @@ window.addEventListener('keydown', e => {
   if (c === 'KeyG' && !hud.craftOpen()) {
     G.tamedMode = G.tamedMode === 'follow' ? 'stay' : 'follow';
     if (G.tamedMode === 'follow') dinos.callTamed();
-    hud.toast(G.tamedMode === 'follow' ? 'Tamed dinos: FOLLOW' : 'Tamed dinos: STAY');
+    hud.toast(G.tamedMode === 'follow' ? 'Partners: FOLLOW' : 'Partners: STAY');
   }
   if (c === 'KeyZ' && !hud.craftOpen()) {
     const t = G.time.t;
@@ -240,8 +240,8 @@ window.addEventListener('keydown', e => {
     }
   }
   if (c === 'KeyT' && !hud.craftOpen()) {
-    if (dinos.callTamed()) hud.toast('Your dinos are coming!');
-    else hud.toast('You have no tamed dinos yet.');
+    if (dinos.callTamed()) hud.toast('Your partners are coming!');
+    else hud.toast('You have no partners yet.');
   }
   if (c === 'KeyM') {
     const m = audio.toggleMute();

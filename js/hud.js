@@ -308,7 +308,7 @@ export function createHud(G) {
     if (!hints.hunger && p.hunger < 45) { hints.hunger = true; toast('You are hungry — eat berries or cooked meat.'); }
     if (!hints.tame && (G.inv.count('meat') > 0 || G.inv.count('berry') > 0)) {
       hints.tame = true;
-      toast('Tame dinos: select food and press F to throw it — Saberclaws eat meat, Mossbacks eat berries.');
+      toast('Befriend pokemon: select food and press F to throw it — most love berries, Charmander loves meat.');
     }
 
     mmT -= dt;

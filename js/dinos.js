@@ -599,16 +599,12 @@ export function createDinoSystem(scene, world) {
     }
     if (dino.state === 'flee') { ctx.toast('It is too spooked to take food.'); return false; }
     if (!dino.spec.tameFood) {
-      if (foodId === 'meat' && dino.species === 'trex') {
-        dino.aggro = true; dino.aggroT = 30; dino.aggroPlayer = true; dino.state = 'hunt'; dino.target = null;
-        ctx.toast('The Rexmaw is not interested... in YOU.');
-      } else {
-        ctx.toast(`The ${dino.spec.label} ignores that.`);
-      }
+      ctx.toast(`${dino.spec.label} can't be befriended.`);
       return false;
     }
     if (foodId !== dino.spec.tameFood) {
-      ctx.toast(`The ${dino.spec.label} turns up its nose at that.`);
+      const want = dino.spec.tameFood === 'berry' ? 'Berries' : 'Raw Meat';
+      ctx.toast(`Not ${dino.spec.label}'s favourite — it wants ${want}.`);
       return false;
     }
     dino.tameProgress += 100 / dino.spec.tameFeeds;
