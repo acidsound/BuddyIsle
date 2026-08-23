@@ -419,7 +419,7 @@ export function createPlayer(scene, camera, world, ctx) {
     player.projectiles.push({
       x: player.x + dir.x * 0.8, y: player.y + EYE - 0.15, z: player.z + dir.z * 0.8,
       vx: v.x, vy: v.y, vz: v.z,
-      item: sel.id, dead: false,
+      item: ctx.inv.selectedId(), dead: false,
     });
     ctx.inv.consumeSelected(1);
     ctx.audio.sfx.throwFood();

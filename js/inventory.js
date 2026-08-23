@@ -88,6 +88,11 @@ export function createInventory() {
     return s ? ITEMS[s.id] : null;
   }
 
+  function selectedId() {
+    const s = slots[selected];
+    return s ? s.id : null;
+  }
+
   function craft(id) {
     const r = RECIPES.find(x => x.id === id);
     if (!r) return false;
@@ -102,7 +107,7 @@ export function createInventory() {
     get selected() { return selected; },
     get version() { return version; },
     select(i) { selected = ((i % 9) + 9) % 9; bump(); },
-    count, add, consume, consumeSelected, selectedItem, craft,
+    count, add, consume, consumeSelected, selectedItem, selectedId, craft,
     damageTool, clear, totalSlots,
   };
 }
