@@ -335,6 +335,9 @@ export function createDino(scene, speciesKey, x, z, world, rng, gltf = null) {
   }
   const root = rig.root;
   root.position.set(x, world.heightAt(x, z), z);
+  // hidden until the game starts: the title screen renders the world behind its
+  // overlay, and procedural rigs would flash there before initModels swaps them.
+  root.visible = !!window.G?.started;
   scene.add(root);
 
   // blob shadow
@@ -343,6 +346,7 @@ export function createDino(scene, speciesKey, x, z, world, rng, gltf = null) {
     new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false })
   );
   shadow.rotation.x = -Math.PI / 2;
+  shadow.visible = root.visible; // same start-gating as the rig
   scene.add(shadow);
 
   // materials for silhouette swapping

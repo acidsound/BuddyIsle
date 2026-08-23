@@ -312,6 +312,11 @@ document.addEventListener('pointerlockchange', () => {
 document.getElementById('start').addEventListener('click', () => {
   audio.init();
   G.started = true;
+  // reveal all dinos + shadows now that the world is live (they're start-gated)
+  for (const d of G.dinos.dinos) {
+    d.rig.root.visible = true;
+    d.shadow.visible = true;
+  }
   hud.setOverlay(null);
   acquireLock();
 });
