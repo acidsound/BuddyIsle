@@ -562,9 +562,13 @@ export function createPlayer(scene, camera, world, ctx) {
       player.moveAmt = 0;
     }
     // expose actual movement for the pet-follow logic: pets only trail while
-    // the player is genuinely moving (and remember where to hold position)
+    // the player is genuinely moving. lastMovePos updates ONLY while moving,
+    // so when the player stops (or just spins the camera) partners anchor to
+    // where they last followed from instead of swinging around the player.
     player.isMoving = ml > 0;
-    if (ml > 0 || !player.lastMovePos) {
+    if (ml > 0) {
+      player.lastMovePos = { x: player.x, z: player.z, yaw: player.yaw };
+    } else if (!player.lastMovePos) {
       player.lastMovePos = { x: player.x, z: player.z, yaw: player.yaw };
     }
     // island bound

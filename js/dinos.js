@@ -797,13 +797,14 @@ export function createDinoSystem(scene, world) {
         d.speed = 0;
         dinoFace(d, player.x, player.z, dt * 2);
       } else if (d.state === 'follow') {
-        // Pet behaviour: only trail while the player is MOVING. The moment they
-        // stop, partners walk to their slot around the last movement position,
-        // settle, and stay there — even if the player spins the camera around.
+        // Pet behaviour: trail while the player MOVES, freeze when they stop.
+        // The anchor is the player's position from WHILE THEY WERE MOVING —
+        // camera-only rotation (mouse look) never moves the anchor, so partners
+        // never swing around in front of the player and block the view.
         let idx = 0;
         for (const o of dinos) if (o.tamed && !o.dead && o !== d) idx++;
         const anchor = player.isMoving ? player : player.lastMovePos;
-        const yawRef = player.isMoving ? player.yaw : anchor.yaw;
+        const yawRef = player.yaw; // facing only affects where they STAND relative to anchor
         const behindX = anchor.x - Math.sin(yawRef) * (2.2 + idx * 1.4);
         const behindZ = anchor.z - Math.cos(yawRef) * (2.2 + idx * 1.4);
         // lateral offset so partners don't stack in a single file line
@@ -811,14 +812,8 @@ export function createDinoSystem(scene, world) {
         const tx = behindX + Math.cos(yawRef) * side;
         const tz = behindZ - Math.sin(yawRef) * side;
         const d2 = dist2d(d.x, d.z, tx, tz);
-        if (player.isMoving) {
-          if (d2 > 1.6) moveTo(d, tx, tz, d2 > 8 ? d.spec.run : d.spec.walk, dt, world);
-          else { d.speed = 0; dinoFace(d, player.x, player.z, dt); }
-        } else {
-          // player stopped: settle into slot, then hold facing the player
-          if (d2 > 0.8) moveTo(d, tx, tz, d2 > 6 ? d.spec.run : d.spec.walk, dt, world);
-          else { d.speed = 0; dinoFace(d, player.x, player.z, dt); }
-        }
+        if (d2 > 1.6) moveTo(d, tx, tz, d2 > 8 ? d.spec.run : d.spec.walk, dt, world);
+        else { d.speed = 0; dinoFace(d, player.x, player.z, dt); }
       } else if (d.state === 'wander') {
         if (!d.wanderPt) { d.stateT = 0; }
         else {
