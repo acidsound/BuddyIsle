@@ -797,16 +797,20 @@ export function createDinoSystem(scene, world) {
         d.speed = 0;
         dinoFace(d, player.x, player.z, dt * 2);
       } else if (d.state === 'follow') {
-        // orbit behind player
+        // trail BEHIND the player's path, like a duckling — never crowd them.
+        // Slot 0 trails the player's back; later partners fan out slightly.
         let idx = 0;
         for (const o of dinos) if (o.tamed && !o.dead && o !== d) idx++;
-        const ang = player.yaw + Math.PI + (idx % 3) * 2.1 - 1.0;
-        const rad = 2.4 + (idx % 3) * 1.1;
-        const tx = player.x + Math.sin(ang) * rad;
-        const tz = player.z + Math.cos(ang) * rad;
+        // anchor point: a few metres behind where the player currently stands
+        const behindX = player.x - Math.sin(player.yaw) * (2.2 + idx * 1.4);
+        const behindZ = player.z - Math.cos(player.yaw) * (2.2 + idx * 1.4);
+        // lateral offset so partners don't stack in a single file line
+        const side = (idx % 2 === 0 ? 1 : -1) * (0.8 + Math.floor(idx / 2) * 0.5);
+        const tx = behindX + Math.cos(player.yaw) * side;
+        const tz = behindZ - Math.sin(player.yaw) * side;
         const d2 = dist2d(d.x, d.z, tx, tz);
-        if (d2 > 1.2) moveTo(d, tx, tz, d2 > 7 ? d.spec.run : d.spec.walk, dt, world);
-        else dinoFace(d, player.x, player.z, dt);
+        if (d2 > 1.6) moveTo(d, tx, tz, d2 > 8 ? d.spec.run : d.spec.walk, dt, world);
+        else { d.speed = 0; dinoFace(d, player.x, player.z, dt); }
       } else if (d.state === 'wander') {
         if (!d.wanderPt) { d.stateT = 0; }
         else {
