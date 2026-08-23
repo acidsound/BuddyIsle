@@ -55,15 +55,73 @@ export function mergeGeoms(geos) {
   return out;
 }
 
-// Inflate a geometry along vertex normals -> inverted-hull outline geometry.
+// Inflate a geometry along vertex normals — kept for the procedural world props
+// (trees/rocks/clouds) whose geometries are already smooth-shaded and small-scale.
 export function inflate(geo, t = 0.05) {
-  const g = geo.index ? geo.toNonIndexed() : geo;
+  const g = geo.index ? geo.toNonIndexed() : geo.clone();
   const p = g.attributes.position, n = g.attributes.normal;
   for (let i = 0; i < p.count; i++) {
     p.setXYZ(i, p.getX(i) + n.getX(i) * t, p.getY(i) + n.getY(i) * t, p.getZ(i) + n.getZ(i) * t);
   }
   g.computeBoundingSphere();
   return g;
+}
+
+// Inflate along AVERAGED normals after welding coincident vertices. toNonIndexed()
+// duplicates vertices at hard edges with per-face normals — naive inflation tears the
+// hull into disconnected triangles (the "spiky ball" bug). Welding + normal averaging
+// keeps the hull continuous across flat-shaded low-poly meshes.
+export function inflateWelded(geo, t = 0.05) {
+  const g = geo.index ? geo.toNonIndexed() : geo.clone();
+  const srcPos = g.getAttribute('position');
+  const srcNorm = g.getAttribute('normal');
+
+  // --- weld: quantize positions, accumulate averaged normals ---
+  const keyOf = (x, y, z) => `${Math.round(x * 1e4)},${Math.round(y * 1e4)},${Math.round(z * 1e4)}`;
+  const weld = new Map(); // key -> {x,y,z,nx,ny,nz}
+  for (let i = 0; i < srcPos.count; i++) {
+    const x = srcPos.getX(i), y = srcPos.getY(i), z = srcPos.getZ(i);
+    const k = keyOf(x, y, z);
+    let v = weld.get(k);
+    if (!v) {
+      v = { x, y, z, nx: 0, ny: 0, nz: 0, count: 0 };
+      weld.set(k, v);
+    }
+    v.nx += srcNorm.getX(i); v.ny += srcNorm.getY(i); v.nz += srcNorm.getZ(i);
+    v.count++;
+  }
+  // normalize accumulated normals; build index remap
+  const remap = new Uint32Array(srcPos.count);
+  const uniq = [];
+  let ui = 0;
+  for (const v of weld.values()) {
+    const len = Math.hypot(v.nx, v.ny, v.nz) || 1;
+    v.nx /= len; v.ny /= len; v.nz /= len;
+    v.index = ui++;
+    uniq.push(v);
+  }
+  for (let i = 0; i < srcPos.count; i++) {
+    const k = keyOf(srcPos.getX(i), srcPos.getY(i), srcPos.getZ(i));
+    remap[i] = weld.get(k).index;
+  }
+
+  // --- push each UNIQUE vertex along its averaged normal ---
+  const outPos = new Float32Array(uniq.length * 3);
+  for (const v of uniq) {
+    outPos[v.index * 3] = v.x + v.nx * t;
+    outPos[v.index * 3 + 1] = v.y + v.ny * t;
+    outPos[v.index * 3 + 2] = v.z + v.nz * t;
+  }
+
+  // --- rebuild indexed triangles from the welded mesh ---
+  const idx = new Uint32Array(srcPos.count);
+  for (let i = 0; i < srcPos.count; i++) idx[i] = remap[i];
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(outPos, 3));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  out.computeVertexNormals();
+  out.computeBoundingSphere();
+  return out;
 }
 
 // A mesh + its ink outline, parented together. Geometry is flattened (poster facets).

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { SPECIES, POPULATION } from './species.js';
 import { clamp, lerpAngle, dist2d, makeRng } from './noise.js';
-import { makeToon, outlineMaterial, celPart, inflate, mergeGeoms, INK } from './world.js';
+import { makeToon, outlineMaterial, celPart, inflateWelded, mergeGeoms, INK } from './world.js';
 
 export { SPECIES };
 
@@ -262,7 +262,7 @@ function applyCelStyle(root, spec) {
     const bbox = new THREE.Box3().setFromBufferAttribute(merged.getAttribute('position'));
     const size = new THREE.Vector3(); bbox.getSize(size);
     const t = Math.max(size.x, size.y, size.z) * 0.022;
-    const outline = new THREE.Mesh(inflate(merged, t), outlineMaterial());
+    const outline = new THREE.Mesh(inflateWelded(merged, t), outlineMaterial());
     outline.raycast = () => {};           // never block interactions
     outline.frustumCulled = false;        // always draw with its model
     root.add(outline);                    // sibling of the meshes, not a child of one
