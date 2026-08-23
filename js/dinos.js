@@ -210,14 +210,13 @@ function loadSpeciesGLB(slug) {
 }
 
 // Convert a loaded GLB scene into the game's cel look.
-// Outlines: ONE merged hull per model instead of per-mesh hulls — per-part hulls
-// break at seams and their thickness varies wildly with each species' normalization
-// scale. We merge the whole model into a single geometry, inflate it in WORLD space,
-// and parent it to the root so the line weight is consistent across all species.
-function applyCelStyle(root, spec) {
+// Outline: merge ALL meshes into one LOCAL-space geometry, inflate it, and add it as
+// a SIBLING of `model` under `parent` so it inherits identical transforms — no
+// counter-scaling fragility. Line weight = fixed fraction of model height.
+function applyCelStyle(parent, model, spec) {
   const toonMats = new Map(); // original color hex -> shared toon material
   const targets = [];
-  root.traverse(o => {
+  model.traverse(o => {
     if (o.isMesh && o.material) targets.push(o);
   });
 
@@ -229,48 +228,35 @@ function applyCelStyle(root, spec) {
     o.castShadow = false;
   }
 
-  // --- single merged ink outline in world space ---
-  const worldGeos = [];
-  const _m = new THREE.Matrix4();
-  root.updateMatrixWorld(true);
+  // --- single merged outline in MODEL-LOCAL space (before parent scaling) ---
+  let vc = 0;
+  const parts = [];
   for (const o of targets) {
-    const g = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry).clone();
-    // bake this mesh's full world transform into its vertices
-    o.updateWorldMatrix(true, false);
-    g.applyMatrix4(o.matrixWorld);
-    // strip attributes the merged outline doesn't need (uv/skinning would break merging)
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    // bake this mesh's local transform (relative to `model`) into its vertices
+    g.applyMatrix4(o.matrix);
     const flat = new THREE.BufferGeometry();
-    flat.setAttribute('position', g.getAttribute('position').clone());
-    flat.computeVertexNormals();
-    worldGeos.push(flat);
-    _m.identity();
+    flat.setAttribute('position', new THREE.BufferAttribute(g.getAttribute('position').array.slice(), 3));
+    vc += flat.attributes.position.count;
+    parts.push(flat);
   }
-  if (worldGeos.length) {
-    // merge manually (positions only) — mergeGeoms assumes local space but we've baked world
-    let vc = 0;
-    worldGeos.forEach(g => { vc += g.attributes.position.count; });
-    const pos = new Float32Array(vc * 3);
-    let off = 0;
-    for (const g of worldGeos) {
-      pos.set(g.attributes.position.array, off * 3);
-      off += g.attributes.position.count;
-    }
-    const merged = new THREE.BufferGeometry();
-    merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    merged.computeVertexNormals();
-    // thickness relative to model height: ~2.5% of the unit-normalized body
-    const bbox = new THREE.Box3().setFromBufferAttribute(merged.getAttribute('position'));
-    const size = new THREE.Vector3(); bbox.getSize(size);
-    const t = Math.max(size.x, size.y, size.z) * 0.022;
-    const outline = new THREE.Mesh(inflateWelded(merged, t), outlineMaterial());
-    outline.raycast = () => {};           // never block interactions
-    outline.frustumCulled = false;        // always draw with its model
-    root.add(outline);                    // sibling of the meshes, not a child of one
-    // counter-transform: bake happened in world space, but outline now lives under
-    // the same normalized-scale root — divide it back out so it hugs the model.
-    outline.scale.setScalar(1 / root.scale.x);
-    outline.position.set(0, -root.position.y / root.scale.x, 0);
-  }
+  if (!parts.length) return;
+  const pos = new Float32Array(vc * 3);
+  let off = 0;
+  for (const p of parts) { pos.set(p.attributes.position.array, off * 3); off += p.attributes.position.count; }
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  merged.computeVertexNormals();
+
+  // thickness: fraction of the model's own bounding box → consistent look per species
+  const bbox = new THREE.Box3().setFromBufferAttribute(merged.getAttribute('position'));
+  const size = new THREE.Vector3(); bbox.getSize(size);
+  const t = Math.max(size.x, size.y, size.z) * 0.018;
+
+  const outline = new THREE.Mesh(inflateWelded(merged, t), outlineMaterial());
+  outline.raycast = () => {};      // never block interactions
+  outline.frustumCulled = false;   // always draw with its model
+  parent.add(outline);             // same transform space as `model`
 }
 
 // Build a rig from a loaded GLB: normalize size to the species scale, apply the cel look,
@@ -288,7 +274,7 @@ function buildGltfRig(gltf, spec) {
   root.add(model);
 
   // cel-shade + ink outlines in the artist's own palette
-  applyCelStyle(model, spec);
+  applyCelStyle(root, model, spec);
 
   // mixer for optional clips (these GLBs have none, but harmless)
   const mixer = new THREE.AnimationMixer(model);
