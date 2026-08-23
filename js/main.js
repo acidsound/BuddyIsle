@@ -9,7 +9,9 @@ import { createParticles } from './particles.js';
 import { createInventory } from './inventory.js';
 
 const canvas = document.getElementById('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+// antialias:false — MSAA render targets crash SwiftShader (context lost ~4s in).
+// Real GPUs don't need this workaround, but disabling AA everywhere keeps one code path.
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;

@@ -981,25 +981,33 @@ export function createDinoSystem(scene, world) {
   }
 
   async function initModels() {
-    // swap each dino's procedural rig for its species GLB rig (per-species models)
-    for (const d of dinos) {
-      if (d.gltfApplied) continue;
-      d.gltfApplied = true;
-      if (!d.spec.glb) continue;
-      try {
-        const gltf = await loadSpeciesGLB(d.spec.glb);
-        const oldRoot = d.rig.root;
-        scene.remove(oldRoot);
-        const rig = buildGltfRig(gltf, d.spec);
-        rig.root.position.copy(oldRoot.position);
-        rig.root.rotation.y = oldRoot.rotation.y;
-        scene.add(rig.root);
-        d.rig = rig;
-        // rebind partList (empty for GLB — silhouette LOD swaps are skipped)
-        d.partList = [];
-      } catch (e) {
-        console.warn(`GLB load failed for ${d.species} (${d.spec.glb}), keeping procedural rig`, e.message);
+    // swap each dino's procedural rig for its species GLB rig (per-species models).
+    // Runs forever-ish: repopulate() spawns NEW dinos at runtime and they need the
+    // swap too, so we poll instead of running once.
+    while (true) {
+      let swapped = 0;
+      for (const d of dinos) {
+        if (d.gltfApplied) continue;
+        if (!d.spec.glb) { d.gltfApplied = true; continue; }
+        try {
+          const gltf = await loadSpeciesGLB(d.spec.glb);
+          const oldRoot = d.rig.root;
+          scene.remove(oldRoot);
+          const rig = buildGltfRig(gltf, d.spec);
+          rig.root.position.copy(oldRoot.position);
+          rig.root.rotation.y = oldRoot.rotation.y;
+          scene.add(rig.root);
+          d.rig = rig;
+          // rebind partList (empty for GLB — silhouette LOD swaps are skipped)
+          d.partList = [];
+          d.gltfApplied = true;
+          swapped++;
+        } catch (e) {
+          // retry later — likely a transient load failure
+          console.warn(`GLB load failed for ${d.species} (${d.spec.glb}), will retry`, e.message);
+        }
       }
+      if (!swapped) await new Promise(r => setTimeout(r, 1000));
     }
   }
 
