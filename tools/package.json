@@ -2,7 +2,7 @@
   "name": "dinosurv-tools",
   "private": true,
   "type": "module",
-  "description": "Asset fetch helpers for DinoSurv",
+  "description": "Asset fetch helpers for BuddyIsle",
   "dependencies": {
     "puppeteer-core": "^23.0.0"
   }
