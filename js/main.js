@@ -369,7 +369,9 @@ function frame(now) {
 
   // crafting is a menu: freeze the simulation while it is open
   if (!G.started || G.paused || hud.craftOpen() || G.helpOpen) {
-    // idle render so the world is visible behind overlays
+    // idle render so the world is visible behind overlays.
+    // Dinos stay hidden until the game actually starts: they'd otherwise pop in
+    // as procedural rigs for a frame before initModels swaps them to GLBs.
     world.update(0.016, G.time.t, G.player.player.x, G.player.player.z, G.buildings);
     particles.update(0.016);
     if (!G.started) camera.rotation.y += 0.016 * 0.05; // slow pan behind the title

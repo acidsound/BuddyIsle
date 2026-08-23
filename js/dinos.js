@@ -993,6 +993,10 @@ export function createDinoSystem(scene, world) {
     // swap each dino's procedural rig for its species GLB rig (per-species models).
     // Runs forever-ish: repopulate() spawns NEW dinos at runtime and they need the
     // swap too, so we poll instead of running once.
+    //
+    // Preload ALL species GLBs BEFORE the first swap: otherwise dinos pop in as
+    // procedural rigs at game start and visibly morph into pokemon a second later.
+    await Promise.all(Object.values(SPECIES).filter(s => s.glb).map(s => loadSpeciesGLB(s.glb).catch(() => {})));
     while (true) {
       let swapped = 0;
       for (const d of dinos) {
