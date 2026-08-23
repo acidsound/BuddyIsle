@@ -266,6 +266,10 @@ function applyCelStyle(parent, model, spec) {
 function buildGltfRig(gltf, spec) {
   const root = new THREE.Group();
   const model = gltf.scene;
+  // The poly.pizza models face -Z, but the movement code treats local +Z as forward
+  // (yaw=atan2(dx,dz), position += (sin yaw, cos yaw)). Rotate 180° so they walk
+  // facing where they're going.
+  model.rotation.y = Math.PI;
   // Normalize: species scale sets target height, feet at y=0
   const bbox = new THREE.Box3().setFromObject(model);
   const size = new THREE.Vector3(); bbox.getSize(size);
