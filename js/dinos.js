@@ -993,9 +993,12 @@ export function createDinoSystem(scene, world) {
         if (!d.spec.glb) { d.gltfApplied = true; continue; }
         try {
           const gltf = await loadSpeciesGLB(d.spec.glb);
+          // gltf.scene is CACHED and SHARED across every dino of this species —
+          // mutating it (materials, outline children) would compound per spawn
+          // (outline-of-outline = giant black hulls). Clone per instance instead.
           const oldRoot = d.rig.root;
           scene.remove(oldRoot);
-          const rig = buildGltfRig(gltf, d.spec);
+          const rig = buildGltfRig({ scene: gltf.scene.clone(true), animations: gltf.animations }, d.spec);
           rig.root.position.copy(oldRoot.position);
           rig.root.rotation.y = oldRoot.rotation.y;
           scene.add(rig.root);
