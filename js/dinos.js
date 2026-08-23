@@ -256,7 +256,9 @@ function applyCelStyle(parent, model, spec) {
   const outline = new THREE.Mesh(inflateWelded(merged, t), outlineMaterial());
   outline.raycast = () => {};      // never block interactions
   outline.frustumCulled = false;   // always draw with its model
-  parent.add(outline);             // same transform space as `model`
+  model.add(outline);              // CHILD of the model: inherits its scale+position,
+                                   // so the hull hugs the body no matter how the
+                                   // rig normalizes the model afterwards
 }
 
 // Build a rig from a loaded GLB: normalize size to the species scale, apply the cel look,
